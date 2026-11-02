@@ -78,6 +78,7 @@ function drawWheel() {
   const n = opts.length;
   if (!n) {
     wheel.style.background = '#222c38';
+    wheel.innerHTML = '';
     return;
   }
   const seg = 360 / n;
@@ -87,10 +88,16 @@ function drawWheel() {
     stops.push(COLORS[i % COLORS.length] + ' ' + a + 'deg ' + (a + seg) + 'deg');
   }
   wheel.style.background = 'conic-gradient(' + stops.join(',') + ')';
-  // labels
+  // 文字放在每格正中：CSS rotate 与 conic 同为从顶部顺时针
+  const R = Math.round((wheel.clientWidth || 260) * 0.32);
   wheel.innerHTML = opts.map((t, i) => {
     const mid = (i + 0.5) * seg;
-    return '<div style="position:absolute;left:50%;top:50%;width:50%;transform-origin:0 0;transform:rotate(' + mid + 'deg) translateY(-50%) translateX(8px);font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;max-width:42%;text-overflow:ellipsis;direction:ltr">' + t + '</div>';
+    return '<div style="position:absolute;left:50%;top:50%;width:72px;margin-left:-36px;margin-top:-8px;' +
+      'transform:rotate(' + mid + 'deg) translateY(-' + R + 'px);' +
+      'transform-origin:36px 8px;' +
+      'font-size:11px;font-weight:700;color:#fff;text-align:center;' +
+      'text-shadow:0 1px 2px rgba(0,0,0,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+      t + '</div>';
   }).join('');
 }
 
@@ -133,6 +140,8 @@ $('#btnAddOpt').onclick = () => {
   toast('已添加');
 };
 
+let wheelAngle = 0;
+
 $('#btnSpin').onclick = () => {
   if (spinning) return;
   const opts = getOpts();
@@ -141,9 +150,11 @@ $('#btnSpin').onclick = () => {
   $('#spinResult').textContent = '转动中…';
   const idx = Math.floor(Math.random() * opts.length);
   const seg = 360 / opts.length;
-  // pointer at top (0deg / 360deg). conic starts at top.
-  // to land idx at top: rotate so that (idx+0.5)*seg is at 0, plus full turns
-  const target = 360 * 5 + (360 - (idx + 0.5) * seg);
+  // 指针在正上方。把 idx 格的中心转到正上方：
+  // (idx+0.5)*seg + angle ≡ 0 (mod 360) → angle = 360k - (idx+0.5)*seg
+  const base = Math.ceil(wheelAngle / 360) * 360 + 360 * 5;
+  const target = base - (idx + 0.5) * seg;
+  wheelAngle = target;
   const wheel = $('#wheel');
   wheel.style.transform = 'rotate(' + target + 'deg)';
   setTimeout(() => {
@@ -157,6 +168,7 @@ function refreshAll() {
   renderOpts();
   drawWheel();
   $('#spinResult').textContent = '点下方按钮开始';
+  wheelAngle = 0;
   $('#wheel').style.transform = 'rotate(0deg)';
 }
 
