@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "updated": "2026-11-02T08:27:39.249Z",
+  "updated": "2026-11-02T08:27:41.550Z",
   "users": [
     {
       "id": "umvyz8huozlku",
@@ -75,34 +75,10 @@
   ],
   "foods": [
     {
-      "name": "无糖可乐",
-      "amount": "1瓶",
-      "kcal": 0,
-      "count": 93
-    },
-    {
-      "name": "牛奶",
-      "amount": "100ml",
-      "kcal": 54,
-      "count": 94
-    },
-    {
-      "name": "鸡蛋",
-      "amount": "1个",
-      "kcal": 70,
-      "count": 95
-    },
-    {
-      "name": "鸡胸肉",
+      "name": "米饭",
       "amount": "100g",
-      "kcal": 133,
-      "count": 96
-    },
-    {
-      "name": "馒头",
-      "amount": "100g",
-      "kcal": 223,
-      "count": 97
+      "kcal": 116,
+      "count": 99
     },
     {
       "name": "面条",
@@ -111,10 +87,34 @@
       "count": 98
     },
     {
-      "name": "米饭",
+      "name": "馒头",
       "amount": "100g",
-      "kcal": 116,
-      "count": 99
+      "kcal": 223,
+      "count": 97
+    },
+    {
+      "name": "鸡胸肉",
+      "amount": "100g",
+      "kcal": 133,
+      "count": 96
+    },
+    {
+      "name": "鸡蛋",
+      "amount": "1个",
+      "kcal": 70,
+      "count": 95
+    },
+    {
+      "name": "牛奶",
+      "amount": "100ml",
+      "kcal": 54,
+      "count": 94
+    },
+    {
+      "name": "无糖可乐",
+      "amount": "1瓶",
+      "kcal": 0,
+      "count": 93
     },
     {
       "name": "猪脚饭-米饭",
