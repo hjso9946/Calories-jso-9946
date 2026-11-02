@@ -19,9 +19,10 @@
 <body>
 <div class="wrap">
   <div id="navHost"></div>
+  <div id="userBar"></div>
 
   <div class="hero">
-    <div class="date">今天吃什么</div>
+    <div class="date" id="spinWho">今天吃什么</div>
     <div class="total" style="font-size:32px">转盘随机选</div>
   </div>
 
@@ -31,18 +32,18 @@
       <div class="pointer"></div>
       <div class="wheel" id="wheel"></div>
     </div>
-    <div class="spin-result" id="spinResult">点「转一下」随机选</div>
-    <button class="btn" id="btnSpin">转一下</button>
+    <div class="spin-result" id="spinResult">点下方按钮开始</div>
+    <button class="btn" id="btnSpin">开始转</button>
   </div>
 
   <div class="card">
-    <h2>选项（自己改）</h2>
+    <h2>选项（可编辑）</h2>
     <div id="optList"></div>
     <div class="opt-row" style="margin-top:8px">
-      <input id="optNew" type="text" placeholder="添加选项，如：麻辣烫"/>
-      <button class="btn ghost" id="btnAddOpt" style="width:auto;padding:12px 16px">+</button>
+      <input type="text" id="newOpt" placeholder="添加选项，如：麻辣烫"/>
+      <button class="btn" id="btnAddOpt" style="width:auto;padding:12px 16px">加</button>
     </div>
-    <p class="chart-note">删除或添加后转盘自动更新。</p>
+    <p class="chart-note">选项按用户保存 · 食物库仍全局共享</p>
   </div>
 
   <div class="foot">数据存本机浏览器</div>
@@ -51,93 +52,116 @@
 <script>
 renderNav('spin.html');
 
-const DEFAULT_SPIN = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
-
-function loadSpin() {
-  try {
-    const a = JSON.parse(localStorage.getItem(LS_SPIN) || 'null');
-    return Array.isArray(a) && a.length ? a : DEFAULT_SPIN.slice();
-  } catch (e) { return DEFAULT_SPIN.slice(); }
-}
-function saveSpin(list) {
-  localStorage.setItem(LS_SPIN, JSON.stringify(list));
-}
-
-let spin = loadSpin();
+const COLORS = ['#5b9dff','#7c6cff','#3dd68c','#f5a524','#f07178','#2dd4bf','#c084fc','#fb7185'];
 let spinning = false;
 
-function renderWheel() {
-  const opts = spin.filter(Boolean);
-  const list = $('#optList');
-  list.innerHTML = opts.map((o, i) => (
-    '<div class="opt-row">' +
-    '<input type="text" data-idx="' + i + '" value="' + String(o).replace(/"/g, '&quot;') + '"/>' +
-    '<button data-rm="' + i + '">×</button></div>'
-  )).join('');
-  list.querySelectorAll('input').forEach(inp => {
-    inp.onchange = () => {
-      spin[+inp.dataset.idx] = inp.value.trim() || spin[+inp.dataset.idx];
-      saveSpin(spin);
-      renderWheel();
-    };
-  });
-  list.querySelectorAll('[data-rm]').forEach(b => {
-    b.onclick = () => {
-      if (spin.length <= 2) { toast('至少留 2 个选项'); return; }
-      spin.splice(+b.dataset.rm, 1);
-      saveSpin(spin);
-      renderWheel();
-    };
-  });
+function u() { return activeUser(); }
 
+function getOpts() {
+  const st = u();
+  if (!Array.isArray(st.spin) || !st.spin.length) {
+    st.spin = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
+    saveActiveUser(st);
+  }
+  return st.spin;
+}
+
+function setOpts(list) {
+  const st = u();
+  st.spin = list;
+  saveActiveUser(st);
+}
+
+function drawWheel() {
+  const opts = getOpts();
   const wheel = $('#wheel');
-  if (!opts.length) { wheel.innerHTML = ''; return; }
   const n = opts.length;
-  const colors = ['#5b9dff', '#7c6cff', '#3dd68c', '#f5a524', '#f07178', '#22b8cf', '#e67e22', '#9b59b6'];
+  if (!n) {
+    wheel.style.background = '#222c38';
+    return;
+  }
   const seg = 360 / n;
-  const parts = opts.map((_, i) => colors[i % colors.length] + ' ' + (i * seg) + 'deg ' + ((i + 1) * seg) + 'deg');
-  wheel.style.background = 'conic-gradient(from -90deg, ' + parts.join(',') + ')';
-  wheel.innerHTML = '';
-  opts.forEach((o, i) => {
-    const el = document.createElement('div');
-    const rot = i * seg + seg / 2;
-    el.style.cssText = 'position:absolute;left:50%;top:50%;width:50%;height:0;transform:rotate(' + (rot - 90) + 'deg);transform-origin:0 0;';
-    el.innerHTML = '<span style="position:absolute;left:18%;top:6px;transform:translateY(-50%);color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.35)">' + String(o).slice(0, 8) + '</span>';
-    wheel.appendChild(el);
+  const stops = [];
+  for (let i = 0; i < n; i++) {
+    const a = i * seg;
+    stops.push(COLORS[i % COLORS.length] + ' ' + a + 'deg ' + (a + seg) + 'deg');
+  }
+  wheel.style.background = 'conic-gradient(' + stops.join(',') + ')';
+  // labels
+  wheel.innerHTML = opts.map((t, i) => {
+    const mid = (i + 0.5) * seg;
+    return '<div style="position:absolute;left:50%;top:50%;width:50%;transform-origin:0 0;transform:rotate(' + mid + 'deg) translateY(-50%) translateX(8px);font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;max-width:42%;text-overflow:ellipsis;direction:ltr">' + t + '</div>';
+  }).join('');
+}
+
+function renderOpts() {
+  const opts = getOpts();
+  $('#optList').innerHTML = opts.map((t, i) => (
+    '<div class="opt-row"><input type="text" data-i="' + i + '" value="' + String(t).replace(/"/g, '&quot;') + '"/>' +
+    '<button data-del="' + i + '">×</button></div>'
+  )).join('');
+  $('#optList').querySelectorAll('input').forEach(inp => {
+    inp.onchange = () => {
+      const list = getOpts();
+      list[+inp.dataset.i] = inp.value.trim() || list[+inp.dataset.i];
+      setOpts(list);
+      drawWheel();
+    };
+  });
+  $('#optList').querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = () => {
+      const list = getOpts();
+      if (list.length <= 2) { toast('至少留 2 个选项'); return; }
+      list.splice(+btn.dataset.del, 1);
+      setOpts(list);
+      renderOpts();
+      drawWheel();
+    };
   });
 }
 
 $('#btnAddOpt').onclick = () => {
-  const v = $('#optNew').value.trim();
+  const v = $('#newOpt').value.trim();
   if (!v) return;
-  spin.push(v);
-  $('#optNew').value = '';
-  saveSpin(spin);
-  renderWheel();
+  const list = getOpts();
+  if (list.indexOf(v) >= 0) { toast('已有这项'); return; }
+  list.push(v);
+  setOpts(list);
+  $('#newOpt').value = '';
+  renderOpts();
+  drawWheel();
+  toast('已添加');
 };
 
 $('#btnSpin').onclick = () => {
   if (spinning) return;
-  const opts = spin.filter(Boolean);
+  const opts = getOpts();
   if (opts.length < 2) { toast('至少 2 个选项'); return; }
   spinning = true;
-  const wheel = $('#wheel');
+  $('#spinResult').textContent = '转动中…';
   const idx = Math.floor(Math.random() * opts.length);
   const seg = 360 / opts.length;
-  const base = 360 * 5 - (idx * seg + seg / 2);
-  const cur = wheel._rot || 0;
-  const targetRot = cur + ((base - (cur % 360) + 360) % 360) + 360;
-  wheel._rot = targetRot;
-  wheel.style.transform = 'rotate(' + targetRot + 'deg)';
-  $('#spinResult').textContent = '…';
+  // pointer at top (0deg / 360deg). conic starts at top.
+  // to land idx at top: rotate so that (idx+0.5)*seg is at 0, plus full turns
+  const target = 360 * 5 + (360 - (idx + 0.5) * seg);
+  const wheel = $('#wheel');
+  wheel.style.transform = 'rotate(' + target + 'deg)';
   setTimeout(() => {
-    $('#spinResult').textContent = '👉 ' + opts[idx];
     spinning = false;
-    toast('就吃：' + opts[idx]);
+    $('#spinResult').textContent = '👉 ' + opts[idx];
   }, 3300);
 };
 
-renderWheel();
+function refreshAll() {
+  $('#spinWho').textContent = u().name + ' · 今天吃什么';
+  renderOpts();
+  drawWheel();
+  $('#spinResult').textContent = '点下方按钮开始';
+  $('#wheel').style.transform = 'rotate(0deg)';
+}
+
+renderUserBar(refreshAll);
+refreshAll();
 </script>
 </body>
 </html>

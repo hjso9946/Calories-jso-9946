@@ -10,9 +10,10 @@
 <body>
 <div class="wrap">
   <div id="navHost"></div>
+  <div id="userBar"></div>
 
   <div class="hero">
-    <div class="date">体重记录</div>
+    <div class="date" id="heroWho">体重记录</div>
     <div class="total" id="heroW">— <span>斤</span></div>
     <div class="badge ok" id="heroDelta">记录后显示变化</div>
   </div>
@@ -42,19 +43,16 @@
     </table>
   </div>
 
-  <div class="foot">数据存本机浏览器 · 日期带星期</div>
+  <div class="foot">按用户分开记录 · 日期带星期</div>
 </div>
 <script src="app.js"></script>
 <script>
 renderNav('weight.html');
 
-const state = {
-  store: loadStore(),
-  date: todayISO()
-};
+function u() { return activeUser(); }
 
 function drawW() {
-  const list = (state.store.weights || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const list = (u().weights || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const series = list.map(w => ({ label: String(w.date).slice(5), v: +w.jin }));
   drawLine($('#wChart'), series, { color: '#7c6cff', empty: '记录一次体重后显示趋势', height: 240 });
   if (list.length) {
@@ -70,11 +68,12 @@ function drawW() {
     }
   } else {
     $('#heroW').innerHTML = '— <span>斤</span>';
+    $('#heroDelta').textContent = '记录后显示变化';
   }
 }
 
 function renderList() {
-  const list = (state.store.weights || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const list = (u().weights || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const body = $('#wBody');
   if (!list.length) {
     body.innerHTML = '<tr><td colspan="5" class="empty">还没有体重记录</td></tr>';
@@ -87,10 +86,10 @@ function renderList() {
     body.querySelectorAll('.del').forEach(b => {
       b.onclick = () => {
         if (!confirm('删除这条体重？')) return;
-        state.store.weights = state.store.weights.filter(x => x.date !== b.dataset.date);
-        saveStore(state.store);
+        const st = u();
+        st.weights = (st.weights || []).filter(x => x.date !== b.dataset.date);
+        saveActiveUser(st);
         renderList();
-        drawW();
         toast('已删除');
       };
     });
@@ -99,9 +98,13 @@ function renderList() {
 }
 
 function setWDate(ds) {
-  state.date = ds;
   $('#wDate').value = ds;
   $('#wDateLabel').textContent = '日期 · ' + fmtDate(ds);
+}
+
+function refreshAll() {
+  $('#heroWho').textContent = u().name + ' · 体重记录';
+  renderList();
 }
 
 $('#wDate').onchange = (e) => {
@@ -109,31 +112,34 @@ $('#wDate').onchange = (e) => {
 };
 
 $('#btnW').onclick = () => {
-  const date = $('#wDate').value || state.date;
+  const date = $('#wDate').value || todayISO();
   const jin = parseFloat($('#wJin').value);
   if (isNaN(jin) || jin < 30 || jin > 400) { toast('请填体重（斤）'); return; }
   const note = $('#wNote').value.trim();
-  state.store.weights = (state.store.weights || []).filter(x => x.date !== date);
-  state.store.weights.push({ date: date, jin: Math.round(jin * 10) / 10, note: note });
-  saveStore(state.store);
+  const st = u();
+  st.weights = (st.weights || []).filter(x => x.date !== date);
+  st.weights.push({ date: date, jin: Math.round(jin * 10) / 10, note: note });
+  saveActiveUser(st);
   $('#wJin').value = '';
   $('#wNote').value = '';
   renderList();
   toast('已保存 ' + fmtDate(date));
 };
 
+renderUserBar(refreshAll);
 setWDate(todayISO());
-renderList();
+refreshAll();
 
 (async function seed() {
-  if (state.store.weights && state.store.weights.length) return;
+  if ((u().weights || []).length) return;
   try {
     const r = await fetch('data.json', { cache: 'no-store' });
     if (!r.ok) return;
     const j = await r.json();
     if (Array.isArray(j.weights) && j.weights.length) {
-      state.store.weights = j.weights;
-      saveStore(state.store);
+      const st = u();
+      st.weights = j.weights;
+      saveActiveUser(st);
       renderList();
     }
   } catch (e) {}

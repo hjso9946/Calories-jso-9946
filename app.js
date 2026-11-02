@@ -1,8 +1,8 @@
-/* shared helpers */
+/* shared helpers — multi-user + proportional kcal */
 const WD = ['周日','周一','周二','周三','周四','周五','周六'];
-const LS_KEY = 'calorie_app_v1';
+const LS_USERS = 'calorie_users_v2';
 const LS_FOOD = 'calorie_fooddb_v1';
-const LS_SPIN = 'calorie_spin_v1';
+const LS_OLD = 'calorie_app_v1';
 
 function $(s, el) { return (el || document).querySelector(s); }
 function $all(s, el) { return Array.from((el || document).querySelectorAll(s)); }
@@ -56,24 +56,185 @@ function renderNav(active) {
   host.appendChild(nav);
 }
 
-/* ---------- storage ---------- */
-function loadStore() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {};
-    return {
-      target: raw.target || 1000,
-      entries: Array.isArray(raw.entries) ? raw.entries : [],
-      weights: Array.isArray(raw.weights) ? raw.weights : [],
-      foods: Array.isArray(raw.foods) ? raw.foods : []
-    };
-  } catch (e) {
-    return { target: 1000, entries: [], weights: [], foods: [] };
-  }
-}
-function saveStore(s) {
-  localStorage.setItem(LS_KEY, JSON.stringify(s));
+/* ---------- multi-user store ---------- */
+function defaultUser(name) {
+  return {
+    id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name: name || '我',
+    target: 1000,
+    entries: [],
+    weights: [],
+    spin: ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡']
+  };
 }
 
+function loadUsers() {
+  try {
+    let raw = JSON.parse(localStorage.getItem(LS_USERS) || 'null');
+    if (raw && Array.isArray(raw.users) && raw.users.length) {
+      raw.users.forEach(u => {
+        if (!Array.isArray(u.entries)) u.entries = [];
+        if (!Array.isArray(u.weights)) u.weights = [];
+        if (!Array.isArray(u.spin) || !u.spin.length) u.spin = defaultUser().spin;
+        if (!u.target) u.target = 1000;
+      });
+      return raw;
+    }
+  } catch (e) {}
+
+  // migrate v1
+  try {
+    const old = JSON.parse(localStorage.getItem(LS_OLD) || 'null');
+    if (old) {
+      const u = defaultUser('我');
+      u.target = old.target || 1000;
+      u.entries = old.entries || [];
+      u.weights = old.weights || [];
+      if (old.spin && old.spin.length) u.spin = old.spin;
+      if (old.foods && old.foods.length) saveFooddb(old.foods);
+      const wrap = { activeId: u.id, users: [u] };
+      localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+      return wrap;
+    }
+  } catch (e) {}
+
+  const u = defaultUser('我');
+  const wrap = { activeId: u.id, users: [u] };
+  localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+  return wrap;
+}
+
+function saveUsers(wrap) {
+  localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+}
+
+function activeUser() {
+  const w = loadUsers();
+  let u = w.users.find(x => x.id === w.activeId) || w.users[0];
+  w.activeId = u.id;
+  return u;
+}
+
+function setActiveUser(id) {
+  const w = loadUsers();
+  if (w.users.some(x => x.id === id)) {
+    w.activeId = id;
+    saveUsers(w);
+  }
+}
+
+function createUser(name) {
+  const w = loadUsers();
+  const u = defaultUser(name || ('用户' + (w.users.length + 1)));
+  w.users.push(u);
+  w.activeId = u.id;
+  saveUsers(w);
+  return u;
+}
+
+function renameUser(id, name) {
+  const w = loadUsers();
+  const u = w.users.find(x => x.id === id);
+  if (u) {
+    u.name = String(name || '').trim() || u.name;
+    saveUsers(w);
+  }
+}
+
+function deleteUser(id) {
+  const w = loadUsers();
+  if (w.users.length <= 1) return false;
+  w.users = w.users.filter(x => x.id !== id);
+  if (w.activeId === id) w.activeId = w.users[0].id;
+  saveUsers(w);
+  return true;
+}
+
+function saveActiveUser(u) {
+  const w = loadUsers();
+  const i = w.users.findIndex(x => x.id === u.id);
+  if (i >= 0) w.users[i] = u;
+  else w.users.push(u);
+  w.activeId = u.id;
+  saveUsers(w);
+}
+
+function renderUserBar(onSwitch) {
+  const host = $('#userBar');
+  if (!host) return;
+  const w = loadUsers();
+  const cur = activeUser();
+  host.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'userbar';
+
+  const sel = document.createElement('select');
+  sel.id = 'userSel';
+  sel.className = 'user-sel';
+  w.users.forEach(u => {
+    const o = document.createElement('option');
+    o.value = u.id;
+    o.textContent = u.name;
+    if (u.id === cur.id) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    setActiveUser(sel.value);
+    toast('已切换到 ' + activeUser().name);
+    if (onSwitch) onSwitch();
+  };
+
+  const edit = document.createElement('button');
+  edit.className = 'user-btn';
+  edit.textContent = '改名';
+  edit.onclick = () => {
+    const name = prompt('昵称', activeUser().name);
+    if (name && name.trim()) {
+      renameUser(activeUser().id, name.trim());
+      renderUserBar(onSwitch);
+      if (onSwitch) onSwitch();
+      toast('已改名');
+    }
+  };
+
+  const add = document.createElement('button');
+  add.className = 'user-btn';
+  add.textContent = '+用户';
+  add.onclick = () => {
+    const name = prompt('新用户昵称', '');
+    if (name && name.trim()) {
+      createUser(name.trim());
+      renderUserBar(onSwitch);
+      if (onSwitch) onSwitch();
+      toast('已创建 ' + name.trim());
+    }
+  };
+
+  const del = document.createElement('button');
+  del.className = 'user-btn danger';
+  del.textContent = '删';
+  del.onclick = () => {
+    if (loadUsers().users.length <= 1) { toast('至少留 1 个用户'); return; }
+    if (!confirm('删除用户「' + activeUser().name + '」及其全部记录？')) return;
+    deleteUser(activeUser().id);
+    renderUserBar(onSwitch);
+    if (onSwitch) onSwitch();
+    toast('已删除');
+  };
+
+  const label = document.createElement('span');
+  label.className = 'user-label';
+  label.textContent = '当前：' + cur.name;
+
+  box.appendChild(label);
+  box.appendChild(sel);
+  box.appendChild(edit);
+  box.appendChild(add);
+  box.appendChild(del);
+  host.appendChild(box);
+}
+
+/* ---------- fooddb (shared) ---------- */
 function loadFooddb() {
   try {
     const a = JSON.parse(localStorage.getItem(LS_FOOD) || '[]');
@@ -109,6 +270,47 @@ function searchFood(q) {
   ).slice(0, 12);
 }
 
+/* ---------- proportional kcal ---------- */
+function parseAmount(s) {
+  const str = String(s || '').trim();
+  if (!str) return { n: 1, unit: '' };
+  const m = str.match(/^([0-9]+(?:\.[0-9]+)?)\s*(g|克|kg|ml|毫升|l|个|颗|片|份|杯|碗|包|盒|块|根|只|勺|大勺|小勺)?$/i);
+  if (m) {
+    let n = parseFloat(m[1]);
+    let unit = (m[2] || '').toLowerCase();
+    if (unit === '克') unit = 'g';
+    if (unit === 'kg') { n = n * 1000; unit = 'g'; }
+    if (unit === '毫升') unit = 'ml';
+    if (unit === 'l') { n = n * 1000; unit = 'ml'; }
+    return { n: n, unit: unit };
+  }
+  return { n: 1, unit: str };
+}
+
+function scaleKcal(baseAmount, baseKcal, userAmount) {
+  const b = parseAmount(baseAmount);
+  const u = parseAmount(userAmount);
+  if (!b.n || !baseKcal) return null;
+  // same unit family
+  const bU = b.unit, uU = u.unit;
+  const same = (bU === uU) ||
+    ((bU === 'g' || bU === 'ml') && (uU === 'g' || uU === 'ml')) ||
+    (!bU && !uU);
+  if (!same && bU && uU) return null;
+  const ratio = u.n / b.n;
+  if (!isFinite(ratio) || ratio <= 0) return null;
+  return Math.round(baseKcal * ratio);
+}
+
+function autoKcalFor(foodName, amount) {
+  const list = loadFooddb();
+  const exact = list.find(x => x.name === foodName && (x.amount || '') === (amount || ''));
+  if (exact) return exact.kcal;
+  const byName = list.find(x => x.name === foodName);
+  if (!byName) return null;
+  return scaleKcal(byName.amount, byName.kcal, amount);
+}
+
 /* ---------- charts ---------- */
 function drawLine(canvas, series, opts) {
   opts = opts || {};
@@ -129,6 +331,13 @@ function drawLine(canvas, series, opts) {
     return;
   }
   const vals = data.map(x => +x.v).filter(v => !isNaN(v));
+  if (!vals.length) {
+    ctx.fillStyle = '#8b9bb0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(opts.empty || '暂无数据', cssW / 2, cssH / 2);
+    return;
+  }
   let minV = Math.min.apply(null, vals);
   let maxV = Math.max.apply(null, vals);
   if (opts.yMin != null) minV = Math.min(minV, opts.yMin);
@@ -244,6 +453,59 @@ function drawBars(canvas, series, opts) {
   ctx.setLineDash([]);
 }
 
+/* period stats for week/month */
+function periodStats(entries, weights, target, start, end) {
+  const days = [];
+  let d = start;
+  let guard = 0;
+  while (d <= end && guard++ < 62) {
+    const dayE = entries.filter(e => e.date === d);
+    const total = dayE.reduce((s, e) => s + (+e.kcal || 0), 0);
+    days.push({ date: d, total: dayE.length ? total : null, has: dayE.length > 0 });
+    d = shiftDate(d, 1);
+  }
+  const rec = days.filter(x => x.has);
+  const totalAll = rec.reduce((s, x) => s + x.total, 0);
+  const avg = rec.length ? Math.round(totalAll / rec.length) : 0;
+  const ok = rec.filter(x => x.total <= target).length;
+  const overDays = rec.filter(x => x.total > target);
+  const overSum = overDays.reduce((s, x) => s + (x.total - target), 0);
+  const maxOver = overDays.reduce((m, x) => Math.max(m, x.total - target), 0);
+  const fatEq = Math.round(overSum / 7700 * 100) / 100; // kg 脂肪当量
+
+  const wIn = weights
+    .filter(w => w.date >= start && w.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let weightLoss = null, wStart = null, wEnd = null;
+  if (wIn.length) {
+    wStart = wIn[0];
+    wEnd = wIn[wIn.length - 1];
+    if (wStart && wEnd) weightLoss = Math.round((wStart.jin - wEnd.jin) * 10) / 10;
+  }
+  return {
+    days: days,
+    total: totalAll,
+    avg: avg,
+    rec: rec.length,
+    ok: ok,
+    okRate: rec.length ? Math.round(ok / rec.length * 100) : null,
+    overDays: overDays.length,
+    overSum: overSum,
+    maxOver: maxOver,
+    fatEq: fatEq,
+    weightLoss: weightLoss,
+    wStart: wStart,
+    wEnd: wEnd
+  };
+}
+
+function compareAllUsers(start, end) {
+  return loadUsers().users.map(u => {
+    const st = periodStats(u.entries || [], u.weights || [], u.target || 1000, start, end);
+    return { name: u.name, target: u.target, stats: st };
+  });
+}
+
 /* shared CSS */
 (function injectCSS() {
   const css = `
@@ -251,9 +513,14 @@ function drawBars(canvas, series, opts) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:14px 14px 40px;-webkit-tap-highlight-color:transparent}
 .wrap{max-width:520px;margin:0 auto}
-.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
 .nav a{display:block;text-align:center;padding:12px 8px;border-radius:12px;background:rgba(255,255,255,.05);color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}
 .nav a.on{background:rgba(91,157,255,.18);color:var(--accent)}
+.userbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.user-label{font-size:12px;color:var(--muted);width:100%}
+.user-sel{flex:1;min-width:120px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:14px}
+.user-btn{border:0;background:rgba(91,157,255,.15);color:var(--accent);font-weight:600;border-radius:10px;padding:10px 12px;font-size:12px;cursor:pointer}
+.user-btn.danger{background:rgba(240,113,120,.15);color:var(--bad)}
 .datebar{display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
 .datebar input{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:14px;outline:none;min-width:0}
 .datebar button{border:0;background:rgba(91,157,255,.15);color:var(--accent);font-weight:700;border-radius:10px;padding:10px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
@@ -313,6 +580,7 @@ canvas{width:100%;height:230px;display:block}
 .ac-item{padding:11px 12px;cursor:pointer;display:flex;justify-content:space-between;gap:8px;font-size:13px}
 .ac-item:hover,.ac-item:active{background:rgba(91,157,255,.15)}
 .ac-item .m{color:var(--muted);font-size:11px}
+.cmp-btn{width:100%;margin:10px 0}
 `;
   const st = document.createElement('style');
   st.textContent = css;
