@@ -5,6 +5,7 @@ const LS_FOOD = 'calorie_fooddb_v1';
 const LS_OLD = 'calorie_app_v1';
 const LS_SYNC = 'calorie_sync_v1';
 const LS_ADMIN = 'calorie_admin_v1';
+const LS_ACTIVE = 'calorie_active_user_v1';
 const SYNC_DEFAULT = {
   owner: 'hjso9946',
   repo: 'Calories-jso-9946',
@@ -76,6 +77,8 @@ function renderNav(active) {
 }
 
 /* ---------- multi-user store ---------- */
+const DEFAULT_SPIN = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
+
 function defaultUser(name) {
   return {
     id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -83,55 +86,114 @@ function defaultUser(name) {
     target: 1000,
     entries: [],
     weights: [],
-    spin: ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡']
+    spin: DEFAULT_SPIN.slice()
   };
 }
 
-function loadUsers() {
-  try {
-    let raw = JSON.parse(localStorage.getItem(LS_USERS) || 'null');
-    if (raw && Array.isArray(raw.users) && raw.users.length) {
-      raw.users.forEach(u => {
-        if (!Array.isArray(u.entries)) u.entries = [];
-        if (!Array.isArray(u.weights)) u.weights = [];
-        if (!Array.isArray(u.spin) || !u.spin.length) u.spin = defaultUser().spin;
-        if (!u.target) u.target = 1000;
-      });
-      return raw;
-    }
-  } catch (e) {}
+function getActiveId() {
+  try { return localStorage.getItem(LS_ACTIVE) || ''; } catch (e) { return ''; }
+}
+function setActiveId(id) {
+  try { localStorage.setItem(LS_ACTIVE, id || ''); } catch (e) {}
+}
 
-  // migrate v1
+function normalizeUser(u) {
+  if (!u) return null;
+  if (!Array.isArray(u.entries)) u.entries = [];
+  if (!Array.isArray(u.weights)) u.weights = [];
+  if (!Array.isArray(u.spin) || !u.spin.length) u.spin = DEFAULT_SPIN.slice();
+  if (!u.target) u.target = 1000;
+  if (!u.name) u.name = '用户';
+  return u;
+}
+
+function dedupeUsers(list) {
+  const byName = {};
+  const out = [];
+  (list || []).forEach(u => {
+    normalizeUser(u);
+    if (!u) return;
+    const key = String(u.name).trim();
+    if (!byName[key]) {
+      byName[key] = u;
+      out.push(u);
+      return;
+    }
+    // 同名合并（避免每端各建一个「我」）
+    const t = byName[key];
+    (u.entries || []).forEach(e => {
+      if (!e || !e.id) return;
+      const i = t.entries.findIndex(x => x.id === e.id);
+      if (i >= 0) t.entries[i] = e;
+      else t.entries.push(e);
+    });
+    (u.weights || []).forEach(w => {
+      if (!w || !w.date) return;
+      const i = t.weights.findIndex(x => x.date === w.date);
+      if (i >= 0) t.weights[i] = w;
+      else t.weights.push(w);
+    });
+    if (u.target) t.target = u.target;
+  });
+  return out;
+}
+
+function loadUsers() {
+  let wrap = null;
+  try {
+    wrap = JSON.parse(localStorage.getItem(LS_USERS) || 'null');
+  } catch (e) {
+    wrap = null;
+  }
+
+  if (wrap && Array.isArray(wrap.users) && wrap.users.length) {
+    wrap.users = dedupeUsers(wrap.users);
+    const lastId = getActiveId();
+    const has = (id) => wrap.users.some(x => x.id === id);
+    if (lastId && has(lastId)) wrap.activeId = lastId;
+    else if (!wrap.activeId || !has(wrap.activeId)) wrap.activeId = wrap.users[0].id;
+    setActiveId(wrap.activeId);
+    return wrap;
+  }
+
+  // 仅当真正没有任何用户时才建默认「我」（只建一次）
   try {
     const old = JSON.parse(localStorage.getItem(LS_OLD) || 'null');
-    if (old) {
+    if (old && (old.entries || old.weights)) {
       const u = defaultUser('我');
       u.target = old.target || 1000;
       u.entries = old.entries || [];
       u.weights = old.weights || [];
       if (old.spin && old.spin.length) u.spin = old.spin;
-      if (old.foods && old.foods.length) saveFooddb(old.foods);
-      const wrap = { activeId: u.id, users: [u] };
+      if (old.foods && old.foods.length && !loadFooddb().length) saveFooddb(old.foods);
+      wrap = { activeId: u.id, users: [u] };
       localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+      setActiveId(u.id);
       return wrap;
     }
   } catch (e) {}
 
+  // 只创建一次默认用户，id 稳定，之后不再新增
   const u = defaultUser('我');
-  const wrap = { activeId: u.id, users: [u] };
+  u.id = 'u_default';
+  wrap = { activeId: u.id, users: [u] };
   localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+  setActiveId(u.id);
   return wrap;
 }
 
 function saveUsers(wrap) {
+  if (wrap && wrap.activeId) setActiveId(wrap.activeId);
   localStorage.setItem(LS_USERS, JSON.stringify(wrap));
   if (typeof schedulePush === 'function') schedulePush();
 }
 
 function activeUser() {
   const w = loadUsers();
-  let u = w.users.find(x => x.id === w.activeId) || w.users[0];
+  const lastId = getActiveId();
+  let u = w.users.find(x => x.id === lastId) || w.users.find(x => x.id === w.activeId) || w.users[0];
   w.activeId = u.id;
+  setActiveId(u.id);
   return u;
 }
 
@@ -139,15 +201,25 @@ function setActiveUser(id) {
   const w = loadUsers();
   if (w.users.some(x => x.id === id)) {
     w.activeId = id;
+    setActiveId(id);
     saveUsers(w);
   }
 }
 
 function createUser(name) {
   const w = loadUsers();
-  const u = defaultUser(name || ('用户' + (w.users.length + 1)));
+  const nm = String(name || '').trim() || ('用户' + (w.users.length + 1));
+  if (w.users.some(x => x.name === nm)) {
+    const ex = w.users.find(x => x.name === nm);
+    w.activeId = ex.id;
+    setActiveId(ex.id);
+    saveUsers(w);
+    return ex;
+  }
+  const u = defaultUser(nm);
   w.users.push(u);
   w.activeId = u.id;
+  setActiveId(u.id);
   saveUsers(w);
   return u;
 }
@@ -165,7 +237,10 @@ function deleteUser(id) {
   const w = loadUsers();
   if (w.users.length <= 1) return false;
   w.users = w.users.filter(x => x.id !== id);
-  if (w.activeId === id) w.activeId = w.users[0].id;
+  if (w.activeId === id || getActiveId() === id) {
+    w.activeId = w.users[0].id;
+    setActiveId(w.activeId);
+  }
   saveUsers(w);
   return true;
 }
@@ -174,8 +249,14 @@ function saveActiveUser(u) {
   const w = loadUsers();
   const i = w.users.findIndex(x => x.id === u.id);
   if (i >= 0) w.users[i] = u;
-  else w.users.push(u);
+  else {
+    // 同名则合并，避免多出一份「我」
+    const j = w.users.findIndex(x => x.name === u.name);
+    if (j >= 0) w.users[j] = u;
+    else w.users.push(u);
+  }
   w.activeId = u.id;
+  setActiveId(u.id);
   saveUsers(w);
 }
 
@@ -460,13 +541,15 @@ function mergeFoods(localFoods, remoteFoods) {
 function applyCloudDoc(doc) {
   if (!doc) return false;
   const wrap = loadUsers();
-  const merged = mergeUsers(wrap.users, doc.users || []);
-  const activeStill = merged.some(u => u.id === wrap.activeId);
-  const next = {
-    activeId: activeStill ? wrap.activeId : (merged[0] && merged[0].id),
-    users: merged
-  };
+  const merged = dedupeUsers(mergeUsers(wrap.users, doc.users || []));
+  if (!merged.length) return false;
+  const lastId = getActiveId();
+  const has = (id) => merged.some(u => u.id === id);
+  const activeId = (lastId && has(lastId)) ? lastId
+    : (has(wrap.activeId) ? wrap.activeId : merged[0].id);
+  const next = { activeId: activeId, users: merged };
   localStorage.setItem(LS_USERS, JSON.stringify(next));
+  setActiveId(activeId);
   const foods = mergeFoods(loadFooddb(), doc.foods || []);
   localStorage.setItem(LS_FOOD, JSON.stringify(foods));
   return true;
