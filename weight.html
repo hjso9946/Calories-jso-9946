@@ -45,7 +45,7 @@
 
   <div class="foot">按用户分开记录 · 日期带星期</div>
 </div>
-<script src="app.js"></script>
+<script src="app.js?v=20261102d"></script>
 <script>
 renderNav('weight.html');
 
@@ -85,11 +85,13 @@ function renderList() {
     )).join('');
     body.querySelectorAll('.del').forEach(b => {
       b.onclick = () => {
-        if (!confirm('删除这条体重？')) return;
-        const st = u();
-        markDeleted(weightDelKey(st.id, b.dataset.date));
-        st.weights = (st.weights || []).filter(x => x.date !== b.dataset.date);
-        saveActiveUser(st);
+        const date = b.dataset.date;
+        try {
+          const st = u();
+          st.weights = (st.weights || []).filter(x => x.date !== date);
+          saveActiveUser(st);
+          if (typeof markDeleted === 'function') markDeleted('w:' + st.id + ':' + date);
+        } catch (err) {}
         renderList();
         toast('已删除');
       };

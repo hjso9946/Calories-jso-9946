@@ -159,7 +159,7 @@ function loadUsers() {
   }
 
   if (wrap && Array.isArray(wrap.users) && wrap.users.length) {
-    wrap.users = dedupeUsers(wrap.users);
+    wrap.users = purgeDeleted(dedupeUsers(wrap.users));
     const lastId = getActiveId();
     const has = (id) => wrap.users.some(x => x.id === id);
     if (lastId && has(lastId)) wrap.activeId = lastId;
@@ -245,6 +245,20 @@ function mergeDeletes(localD, remoteD) {
 function entryDelKey(id) { return 'e:' + id; }
 function weightDelKey(uid, date) { return 'w:' + uid + ':' + date; }
 function userDelKey(id) { return 'u:' + id; }
+
+/* 强制清掉已标记删除的条目，保证界面和云端都留不下 */
+function purgeDeleted(users) {
+  const del = loadDeletes();
+  (users || []).forEach(u => {
+    if (!u) return;
+    u.entries = (u.entries || []).filter(e => e && e.id && !del[entryDelKey(e.id)]);
+    u.weights = (u.weights || []).filter(w => {
+      if (!w || !w.date) return false;
+      return !del[weightDelKey(u.id, w.date)] && !del[weightDelKey(u.name, w.date)];
+    });
+  });
+  return users;
+}
 
 function activeUser() {
   const w = loadUsers();
@@ -615,7 +629,7 @@ function applyCloudDoc(doc) {
   const mergedDel = mergeDeletes(loadDeletes(), doc.deletes || {});
   localStorage.setItem(LS_DEL, JSON.stringify(mergedDel));
   const wrap = loadUsers();
-  const merged = dedupeUsers(mergeUsers(wrap.users, doc.users || []));
+  const merged = purgeDeleted(dedupeUsers(mergeUsers(wrap.users, doc.users || [])));
   if (!merged.length) return false;
   const lastId = getActiveId();
   const has = (id) => merged.some(u => u.id === id);

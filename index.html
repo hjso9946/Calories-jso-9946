@@ -165,7 +165,7 @@
 
   <div class="foot">数据存本机浏览器 · 日期带星期 · 份量按比例算热量</div>
 </div>
-<script src="app.js"></script>
+<script src="app.js?v=20261102d"></script>
 <script>
 renderNav('index.html');
 
@@ -195,7 +195,7 @@ function renderHero() {
 
 function renderList() {
   $('#listTitle').textContent = fmtDate(curDate) + ' 明细';
-  const list = (u().entries || []).filter(e => e.date === curDate);
+  const list = (u().entries || []).filter(e => e.date === curDate && !(typeof isDeleted === 'function' && e.id && isDeleted('e:' + e.id)));
   const body = $('#listBody');
   if (!list.length) {
     body.innerHTML = '<tr><td colspan="5" class="empty">这天还没有记录</td></tr>';
@@ -208,11 +208,13 @@ function renderList() {
   )).join('');
   body.querySelectorAll('.del').forEach(btn => {
     btn.onclick = () => {
-      if (!confirm('删除这条？')) return;
-      markDeleted(entryDelKey(btn.dataset.id));
-      const st = u();
-      st.entries = (st.entries || []).filter(x => x.id !== btn.dataset.id);
-      saveActiveUser(st);
+      const id = btn.dataset.id;
+      try {
+        const st = u();
+        st.entries = (st.entries || []).filter(x => x.id !== id);
+        saveActiveUser(st);
+        if (typeof markDeleted === 'function') markDeleted('e:' + id);
+      } catch (err) {}
       renderAll();
       toast('已删除');
     };
