@@ -162,6 +162,8 @@ function refreshAll() {
 
 renderUserBar(refreshAll);
 refreshAll();
+startSyncLoop();
+window.addEventListener('calorie-sync', refreshAll);
 </script>
 </body>
 </html>

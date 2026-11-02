@@ -3,6 +3,14 @@ const WD = ['周日','周一','周二','周三','周四','周五','周六'];
 const LS_USERS = 'calorie_users_v2';
 const LS_FOOD = 'calorie_fooddb_v1';
 const LS_OLD = 'calorie_app_v1';
+const LS_SYNC = 'calorie_sync_v1';
+const SYNC_DEFAULT = {
+  owner: 'hjso9946',
+  repo: 'Calories-jso-9946',
+  path: 'sync.json',
+  token: '',
+  enabled: false
+};
 
 function $(s, el) { return (el || document).querySelector(s); }
 function $all(s, el) { return Array.from((el || document).querySelectorAll(s)); }
@@ -106,6 +114,7 @@ function loadUsers() {
 
 function saveUsers(wrap) {
   localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+  if (typeof schedulePush === 'function') schedulePush();
 }
 
 function activeUser() {
@@ -243,6 +252,7 @@ function loadFooddb() {
 }
 function saveFooddb(list) {
   localStorage.setItem(LS_FOOD, JSON.stringify(list));
+  if (typeof schedulePush === 'function') schedulePush();
 }
 
 function upsertFood(food, amount, kcal) {
@@ -309,6 +319,218 @@ function autoKcalFor(foodName, amount) {
   const byName = list.find(x => x.name === foodName);
   if (!byName) return null;
   return scaleKcal(byName.amount, byName.kcal, amount);
+}
+
+/* ---------- cloud sync (GitHub repo sync.json) ---------- */
+function loadSyncCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_SYNC) || 'null');
+    return Object.assign({}, SYNC_DEFAULT, c || {});
+  } catch (e) {
+    return Object.assign({}, SYNC_DEFAULT);
+  }
+}
+function saveSyncCfg(cfg) {
+  localStorage.setItem(LS_SYNC, JSON.stringify(cfg));
+}
+
+function b64utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+function unb64utf8(b64) {
+  const bin = atob(b64.replace(/\n/g, ''));
+  const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function collectCloudDoc() {
+  return {
+    v: 2,
+    updated: new Date().toISOString(),
+    users: loadUsers().users,
+    foods: loadFooddb()
+  };
+}
+
+function mergeUsers(localUsers, remoteUsers) {
+  const byId = {};
+  const push = (u) => {
+    if (!u || !u.id) return;
+    if (!byId[u.id]) {
+      byId[u.id] = {
+        id: u.id,
+        name: u.name || '用户',
+        target: u.target || 1000,
+        entries: [],
+        weights: [],
+        spin: Array.isArray(u.spin) && u.spin.length ? u.spin.slice() : defaultUser().spin
+      };
+    }
+    const t = byId[u.id];
+    if (u.name) t.name = u.name;
+    if (u.target) t.target = u.target;
+    if (Array.isArray(u.spin) && u.spin.length) t.spin = u.spin.slice();
+    (u.entries || []).forEach(e => {
+      if (!e || !e.id) return;
+      const i = t.entries.findIndex(x => x.id === e.id);
+      if (i >= 0) t.entries[i] = e;
+      else t.entries.push(e);
+    });
+    (u.weights || []).forEach(w => {
+      if (!w || !w.date) return;
+      const i = t.weights.findIndex(x => x.date === w.date);
+      if (i >= 0) t.weights[i] = w;
+      else t.weights.push(w);
+    });
+  };
+  (localUsers || []).forEach(push);
+  (remoteUsers || []).forEach(push);
+  return Object.keys(byId).map(k => byId[k]);
+}
+
+function mergeFoods(localFoods, remoteFoods) {
+  const map = {};
+  const put = (f) => {
+    if (!f || !f.name) return;
+    const key = f.name + '|' + (f.amount || '');
+    if (!map[key]) {
+      map[key] = { name: f.name, amount: f.amount || '', kcal: +f.kcal || 0, count: +f.count || 1 };
+    } else {
+      map[key].kcal = +f.kcal || map[key].kcal;
+      map[key].count = Math.max(map[key].count || 1, +f.count || 1);
+    }
+  };
+  (localFoods || []).forEach(put);
+  (remoteFoods || []).forEach(put);
+  return Object.keys(map).map(k => map[k]).sort((a, b) => (b.count || 0) - (a.count || 0));
+}
+
+function applyCloudDoc(doc) {
+  if (!doc) return false;
+  const wrap = loadUsers();
+  const merged = mergeUsers(wrap.users, doc.users || []);
+  const activeStill = merged.some(u => u.id === wrap.activeId);
+  const next = {
+    activeId: activeStill ? wrap.activeId : (merged[0] && merged[0].id),
+    users: merged
+  };
+  localStorage.setItem(LS_USERS, JSON.stringify(next));
+  const foods = mergeFoods(loadFooddb(), doc.foods || []);
+  localStorage.setItem(LS_FOOD, JSON.stringify(foods));
+  return true;
+}
+
+async function ghApi(path, opts) {
+  opts = opts || {};
+  const cfg = loadSyncCfg();
+  const headers = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+  };
+  if (cfg.token) headers['Authorization'] = 'Bearer ' + cfg.token;
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  const res = await fetch('https://api.github.com' + path, {
+    method: opts.method || 'GET',
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  return res;
+}
+
+async function syncPull(showToast) {
+  const cfg = loadSyncCfg();
+  try {
+    const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+    if (res.status === 404) {
+      if (showToast) toast('云端还没有数据，先点「立即同步」上传');
+      return false;
+    }
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error('pull ' + res.status + ' ' + t.slice(0, 120));
+    }
+    const meta = await res.json();
+    const doc = JSON.parse(unb64utf8(meta.content));
+    applyCloudDoc(doc);
+    if (showToast) toast('已拉取云端数据');
+    window.dispatchEvent(new CustomEvent('calorie-sync'));
+    return true;
+  } catch (e) {
+    if (showToast) toast('同步失败：' + (e.message || e));
+    return false;
+  }
+}
+
+async function syncPush(showToast) {
+  const cfg = loadSyncCfg();
+  if (!cfg.token) {
+    if (showToast) toast('请先填 GitHub Token');
+    return false;
+  }
+  try {
+    const doc = collectCloudDoc();
+    const content = b64utf8(JSON.stringify(doc, null, 2));
+    let sha = undefined;
+    const get = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+    if (get.ok) {
+      const meta = await get.json();
+      sha = meta.sha;
+    }
+    const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path, {
+      method: 'PUT',
+      body: {
+        message: 'sync calorie data ' + new Date().toISOString(),
+        content: content,
+        sha: sha
+      }
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error('push ' + res.status + ' ' + t.slice(0, 120));
+    }
+    if (showToast) toast('已上传云端');
+    return true;
+  } catch (e) {
+    if (showToast) toast('上传失败：' + (e.message || e));
+    return false;
+  }
+}
+
+async function syncNow(showToast) {
+  await syncPull(false);
+  await syncPush(showToast);
+}
+
+let _syncTimer = null;
+function startSyncLoop() {
+  stopSyncLoop();
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled) return;
+  syncPull(false);
+  _syncTimer = setInterval(() => { syncPull(false); }, 12000);
+}
+function stopSyncLoop() {
+  if (_syncTimer) {
+    clearInterval(_syncTimer);
+    _syncTimer = null;
+  }
+}
+
+let _pushDebounce = null;
+function schedulePush() {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled || !cfg.token) return;
+  clearTimeout(_pushDebounce);
+  _pushDebounce = setTimeout(() => { syncPush(false); }, 1500);
+}
+
+function syncBadge() {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled) return 'off';
+  return cfg.token ? 'on' : 'need';
 }
 
 /* ---------- charts ---------- */

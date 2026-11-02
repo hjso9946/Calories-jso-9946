@@ -129,6 +129,8 @@ $('#btnW').onclick = () => {
 renderUserBar(refreshAll);
 setWDate(todayISO());
 refreshAll();
+startSyncLoop();
+window.addEventListener('calorie-sync', refreshAll);
 
 (async function seed() {
   if ((u().weights || []).length) return;

@@ -125,7 +125,26 @@
       <input type="number" id="targetInput" step="50" placeholder="1000"/>
     </div>
     <button class="btn" id="btnTarget">保存目标</button>
-    <div class="grid g2" style="margin-top:16px">
+
+    <h2 style="margin-top:20px">云端同步（两端互通）</h2>
+    <p class="chart-note" id="syncStatus">未开启</p>
+    <div class="field">
+      <label>GitHub Token（只写 contents，两台设备填同一个）</label>
+      <input type="text" id="syncToken" placeholder="ghp_... 或 github_pat_..."/>
+    </div>
+    <div class="field">
+      <label>仓库（默认已填好）</label>
+      <input type="text" id="syncRepo" placeholder="hjso9946/Calories-jso-9946"/>
+    </div>
+    <button class="btn" id="btnSyncSave">保存并开启同步</button>
+    <div class="grid g2" style="margin-top:10px">
+      <button class="btn ghost" id="btnSyncNow">立即同步</button>
+      <button class="btn ghost" id="btnSyncOff">关闭同步</button>
+    </div>
+    <p class="chart-note">开启后约 12 秒自动拉取一次；记账后自动上传。姐姐端同样填这个 Token 即可实时互通。Token 只存本机，不会发给别人。</p>
+
+    <h2 style="margin-top:20px">数据</h2>
+    <div class="grid g2">
       <button class="btn ghost" id="btnExport">导出 JSON</button>
       <button class="btn ghost" id="btnImport">导入 JSON</button>
     </div>
@@ -333,7 +352,10 @@ $all('#tabs button').forEach(b => {
     if (b.dataset.t === 'week') renderWeek();
     if (b.dataset.t === 'month') renderMonth();
     if (b.dataset.t === 'trend') renderTrend();
-    if (b.dataset.t === 'set') $('#targetInput').value = u().target || 1000;
+    if (b.dataset.t === 'set') {
+      $('#targetInput').value = u().target || 1000;
+      renderSyncUI();
+    }
     if (b.dataset.t === 'add') renderChips();
   };
 });
@@ -529,17 +551,79 @@ function renderAll() {
   renderChips();
 }
 
+function renderSyncUI() {
+  const cfg = loadSyncCfg();
+  const st = $('#syncStatus');
+  if (!st) return;
+  if (!cfg.enabled) {
+    st.textContent = '未开启 · 只存本机，别人看不到';
+  } else if (!cfg.token) {
+    st.textContent = '已开启但缺 Token · 请填写后保存';
+    st.style.color = '#f5a524';
+  } else {
+    st.textContent = '已开启 · 仓库 ' + cfg.owner + '/' + cfg.repo + ' · 每 12 秒自动同步';
+    st.style.color = '#3dd68c';
+  }
+  $('#syncToken').value = cfg.token || '';
+  $('#syncRepo').value = cfg.owner + '/' + cfg.repo;
+}
+
+$('#btnSyncSave').onclick = () => {
+  const tok = $('#syncToken').value.trim();
+  const repo = $('#syncRepo').value.trim();
+  const cfg = loadSyncCfg();
+  if (repo && repo.indexOf('/') > 0) {
+    const p = repo.split('/');
+    cfg.owner = p[0].trim();
+    cfg.repo = p[1].trim();
+  }
+  cfg.token = tok;
+  cfg.enabled = true;
+  saveSyncCfg(cfg);
+  renderSyncUI();
+  startSyncLoop();
+  syncNow(true);
+};
+
+$('#btnSyncNow').onclick = () => {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled) { toast('先开启同步'); return; }
+  syncNow(true);
+};
+
+$('#btnSyncOff').onclick = () => {
+  const cfg = loadSyncCfg();
+  cfg.enabled = false;
+  saveSyncCfg(cfg);
+  stopSyncLoop();
+  renderSyncUI();
+  toast('已关闭同步');
+};
+
+window.addEventListener('calorie-sync', () => {
+  renderAll();
+  const t = document.querySelector('#tabs button.on');
+  if (t && t.dataset.t === 'week') renderWeek();
+  if (t && t.dataset.t === 'month') renderMonth();
+  if (t && t.dataset.t === 'trend') renderTrend();
+});
+
 renderUserBar(() => {
   renderAll();
   const t = document.querySelector('#tabs button.on');
   if (t && t.dataset.t === 'week') renderWeek();
   if (t && t.dataset.t === 'month') renderMonth();
   if (t && t.dataset.t === 'trend') renderTrend();
-  if (t && t.dataset.t === 'set') $('#targetInput').value = u().target || 1000;
+  if (t && t.dataset.t === 'set') {
+    $('#targetInput').value = u().target || 1000;
+    renderSyncUI();
+  }
 });
 
 setDate(todayISO());
 renderChips();
+renderSyncUI();
+startSyncLoop();
 
 (async function seed() {
   try {
