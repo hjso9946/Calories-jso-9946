@@ -183,7 +183,8 @@ function renderUserBar(onSwitch) {
   w.users.forEach(u => {
     const o = document.createElement('option');
     o.value = u.id;
-    o.textContent = u.name;
+    const n = (u.entries || []).length;
+    o.textContent = u.name + (n ? ' · ' + n + '条' : '');
     if (u.id === cur.id) o.selected = true;
     sel.appendChild(o);
   });
@@ -235,11 +236,36 @@ function renderUserBar(onSwitch) {
   label.className = 'user-label';
   label.textContent = '当前：' + cur.name;
 
+  const syncLine = document.createElement('div');
+  syncLine.id = 'syncLine';
+  syncLine.className = 'chart-note';
+  syncLine.style.width = '100%';
+  const paintSync = () => {
+    const cfg = loadSyncCfg();
+    const state = getSyncState();
+    if (!cfg.enabled) {
+      syncLine.textContent = '☁ 未开启云同步 · 设置里可开启';
+      syncLine.style.color = '#8b9bb0';
+    } else if (state && state.state === 'ok') {
+      syncLine.textContent = '☁ 已同步 · ' + (state.msg || '');
+      syncLine.style.color = '#3dd68c';
+    } else if (state && state.state === 'err') {
+      syncLine.textContent = '☁ 同步失败 · ' + (state.msg || '');
+      syncLine.style.color = '#f07178';
+    } else {
+      syncLine.textContent = '☁ 同步中…';
+      syncLine.style.color = '#f5a524';
+    }
+  };
+  paintSync();
+  window.addEventListener('calorie-sync-state', paintSync);
+
   box.appendChild(label);
   box.appendChild(sel);
   box.appendChild(edit);
   box.appendChild(add);
   box.appendChild(del);
+  box.appendChild(syncLine);
   host.appendChild(box);
 }
 
@@ -355,21 +381,31 @@ function collectCloudDoc() {
   };
 }
 
+/* 合并规则：先按 id，同名不同 id 也并成一个（家庭多端常见） */
 function mergeUsers(localUsers, remoteUsers) {
-  const byId = {};
+  const list = [];
+  const byKey = {};
+  const keyOf = (u) => {
+    if (!u) return null;
+    const name = String(u.name || '').trim();
+    return name || u.id;
+  };
   const push = (u) => {
-    if (!u || !u.id) return;
-    if (!byId[u.id]) {
-      byId[u.id] = {
-        id: u.id,
-        name: u.name || '用户',
+    if (!u) return;
+    const key = keyOf(u);
+    if (!key) return;
+    if (!byKey[key]) {
+      byKey[key] = {
+        id: u.id || key,
+        name: u.name || key,
         target: u.target || 1000,
         entries: [],
         weights: [],
         spin: Array.isArray(u.spin) && u.spin.length ? u.spin.slice() : defaultUser().spin
       };
+      list.push(byKey[key]);
     }
-    const t = byId[u.id];
+    const t = byKey[key];
     if (u.name) t.name = u.name;
     if (u.target) t.target = u.target;
     if (Array.isArray(u.spin) && u.spin.length) t.spin = u.spin.slice();
@@ -388,7 +424,7 @@ function mergeUsers(localUsers, remoteUsers) {
   };
   (localUsers || []).forEach(push);
   (remoteUsers || []).forEach(push);
-  return Object.keys(byId).map(k => byId[k]);
+  return list;
 }
 
 function mergeFoods(localFoods, remoteFoods) {
@@ -432,33 +468,62 @@ async function ghApi(path, opts) {
   };
   if (cfg.token) headers['Authorization'] = 'Bearer ' + cfg.token;
   if (opts.body) headers['Content-Type'] = 'application/json';
-  const res = await fetch('https://api.github.com' + path, {
+  return fetch('https://api.github.com' + path, {
     method: opts.method || 'GET',
     headers: headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  return res;
+}
+
+function setSyncState(state, msg) {
+  localStorage.setItem('calorie_sync_state', JSON.stringify({
+    state: state,
+    msg: msg || '',
+    at: Date.now()
+  }));
+  window.dispatchEvent(new CustomEvent('calorie-sync-state', { detail: { state, msg } }));
+}
+function getSyncState() {
+  try { return JSON.parse(localStorage.getItem('calorie_sync_state') || 'null'); } catch (e) { return null; }
 }
 
 async function syncPull(showToast) {
   const cfg = loadSyncCfg();
+  const rawUrl = 'https://raw.githubusercontent.com/' + cfg.owner + '/' + cfg.repo + '/main/' + cfg.path;
+  // 优先 raw（不限流、免 Token 可读）；失败再退回 API
+  const tryParse = async (res) => {
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('pull ' + res.status);
+    return await res.json();
+  };
   try {
-    const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
-    if (res.status === 404) {
-      if (showToast) toast('云端还没有数据，先点「立即同步」上传');
+    let doc = null;
+    try {
+      const res = await fetch(rawUrl + '?t=' + Date.now(), { cache: 'no-store' });
+      doc = await tryParse(res);
+    } catch (e) {
+      const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+      if (res.status === 404) doc = null;
+      else if (!res.ok) {
+        const t = await res.text();
+        throw new Error('pull ' + res.status + ' ' + t.slice(0, 100));
+      } else {
+        const meta = await res.json();
+        doc = JSON.parse(unb64utf8(meta.content));
+      }
+    }
+    if (!doc) {
+      if (showToast) toast('云端还没有数据，点「立即同步」上传');
+      setSyncState('empty', '云端暂无数据');
       return false;
     }
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error('pull ' + res.status + ' ' + t.slice(0, 120));
-    }
-    const meta = await res.json();
-    const doc = JSON.parse(unb64utf8(meta.content));
     applyCloudDoc(doc);
+    setSyncState('ok', '已同步 ' + new Date().toLocaleTimeString());
     if (showToast) toast('已拉取云端数据');
     window.dispatchEvent(new CustomEvent('calorie-sync'));
     return true;
   } catch (e) {
+    setSyncState('err', String(e.message || e).slice(0, 80));
     if (showToast) toast('同步失败：' + (e.message || e));
     return false;
   }
@@ -467,6 +532,7 @@ async function syncPull(showToast) {
 async function syncPush(showToast) {
   const cfg = loadSyncCfg();
   if (!cfg.token) {
+    setSyncState('need', '缺 Token，无法上传');
     if (showToast) toast('请先填 GitHub Token');
     return false;
   }
@@ -478,6 +544,9 @@ async function syncPush(showToast) {
     if (get.ok) {
       const meta = await get.json();
       sha = meta.sha;
+    } else if (get.status !== 404) {
+      const t = await get.text();
+      throw new Error('push ' + get.status + ' ' + t.slice(0, 100));
     }
     const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path, {
       method: 'PUT',
@@ -489,12 +558,15 @@ async function syncPush(showToast) {
     });
     if (!res.ok) {
       const t = await res.text();
-      throw new Error('push ' + res.status + ' ' + t.slice(0, 120));
+      throw new Error('push ' + res.status + ' ' + t.slice(0, 100));
     }
+    setSyncState('ok', '已上传 ' + new Date().toLocaleTimeString());
     if (showToast) toast('已上传云端');
     return true;
   } catch (e) {
-    if (showToast) toast('上传失败：' + (e.message || e));
+    const m = String(e.message || e);
+    setSyncState('err', m.slice(0, 80));
+    if (showToast) toast('上传失败：' + m);
     return false;
   }
 }
@@ -510,7 +582,7 @@ function startSyncLoop() {
   const cfg = loadSyncCfg();
   if (!cfg.enabled) return;
   syncPull(false);
-  _syncTimer = setInterval(() => { syncPull(false); }, 12000);
+  _syncTimer = setInterval(() => { syncPull(false); }, 20000);
 }
 function stopSyncLoop() {
   if (_syncTimer) {

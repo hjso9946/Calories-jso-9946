@@ -555,14 +555,18 @@ function renderSyncUI() {
   const cfg = loadSyncCfg();
   const st = $('#syncStatus');
   if (!st) return;
+  const state = getSyncState();
   if (!cfg.enabled) {
     st.textContent = '未开启 · 只存本机，别人看不到';
+    st.style.color = '';
   } else if (!cfg.token) {
     st.textContent = '已开启但缺 Token · 请填写后保存';
     st.style.color = '#f5a524';
   } else {
-    st.textContent = '已开启 · 仓库 ' + cfg.owner + '/' + cfg.repo + ' · 每 12 秒自动同步';
-    st.style.color = '#3dd68c';
+    let line = '已开启 · 仓库 ' + cfg.owner + '/' + cfg.repo;
+    if (state && state.msg) line += ' · ' + state.msg;
+    st.textContent = line;
+    st.style.color = (state && state.state === 'err') ? '#f07178' : '#3dd68c';
   }
   $('#syncToken').value = cfg.token || '';
   $('#syncRepo').value = cfg.owner + '/' + cfg.repo;
