@@ -542,16 +542,19 @@ setDate(todayISO());
 renderChips();
 
 (async function seed() {
-  if ((u().entries || []).length) return;
   try {
     const r = await fetch('data.json', { cache: 'no-store' });
     if (!r.ok) return;
     const j = await r.json();
+    if (Array.isArray(j.foods) && j.foods.length && !loadFooddb().length) saveFooddb(j.foods);
+    if (Array.isArray(j.users) && j.users.length && !localStorage.getItem(LS_USERS)) {
+      localStorage.setItem(LS_USERS, JSON.stringify({ activeId: j.users[0].id, users: j.users }));
+    }
+    if ((u().entries || []).length) return;
     const st = u();
     if (Array.isArray(j.entries) && j.entries.length) st.entries = j.entries;
     if (Array.isArray(j.weights) && j.weights.length) st.weights = j.weights;
     if (j.target) st.target = j.target;
-    if (Array.isArray(j.foods) && j.foods.length && !loadFooddb().length) saveFooddb(j.foods);
     saveActiveUser(st);
     renderAll();
   } catch (e) {}
