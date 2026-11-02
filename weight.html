@@ -87,6 +87,7 @@ function renderList() {
       b.onclick = () => {
         if (!confirm('删除这条体重？')) return;
         const st = u();
+        markDeleted(weightDelKey(st.id, b.dataset.date));
         st.weights = (st.weights || []).filter(x => x.date !== b.dataset.date);
         saveActiveUser(st);
         renderList();
@@ -117,6 +118,7 @@ $('#btnW').onclick = () => {
   if (isNaN(jin) || jin < 30 || jin > 400) { toast('请填体重（斤）'); return; }
   const note = $('#wNote').value.trim();
   const st = u();
+  clearDeleted(weightDelKey(st.id, date));
   st.weights = (st.weights || []).filter(x => x.date !== date);
   st.weights.push({ date: date, jin: Math.round(jin * 10) / 10, note: note });
   saveActiveUser(st);

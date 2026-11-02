@@ -209,6 +209,7 @@ function renderList() {
   body.querySelectorAll('.del').forEach(btn => {
     btn.onclick = () => {
       if (!confirm('删除这条？')) return;
+      markDeleted(entryDelKey(btn.dataset.id));
       const st = u();
       st.entries = (st.entries || []).filter(x => x.id !== btn.dataset.id);
       saveActiveUser(st);
@@ -336,8 +337,10 @@ $('#btnSave').onclick = () => {
   if (isNaN(kcal) || kcal < 0) { toast('请填热量'); return; }
   const st = u();
   st.entries = st.entries || [];
+  const newId = curDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5);
+  clearDeleted(entryDelKey(newId));
   st.entries.push({
-    id: curDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5),
+    id: newId,
     date: curDate,
     meal: meal,
     food: food,
@@ -546,6 +549,10 @@ $('#btnImport').onclick = () => {
 $('#btnClear').onclick = () => {
   if (!confirm('清空「' + u().name + '」全部记录？')) return;
   const st = u();
+  const keys = [];
+  (st.entries || []).forEach(e => { if (e && e.id) keys.push(entryDelKey(e.id)); });
+  (st.weights || []).forEach(w => { if (w && w.date) keys.push(weightDelKey(st.id, w.date)); });
+  markDeletedMany(keys);
   st.entries = [];
   st.weights = [];
   saveActiveUser(st);

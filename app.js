@@ -7,6 +7,7 @@ const LS_SYNC = 'calorie_sync_v1';
 const LS_ADMIN = 'calorie_admin_v1';
 const LS_ACTIVE = 'calorie_active_user_v1';
 const LS_SPINS = 'calorie_spins_v1'; // 本机多转盘，不同步
+const LS_DEL = 'calorie_deletes_v1'; // 删除标记（墓碑），防止同步把删掉的并回来
 const SYNC_DEFAULT = {
   owner: 'hjso9946',
   repo: 'Calories-jso-9946',
@@ -198,6 +199,53 @@ function saveUsers(wrap) {
   if (typeof schedulePush === 'function') schedulePush();
 }
 
+/* ---- 删除标记（墓碑）：删掉的记录同步时不再被合并回来 ---- */
+function loadDeletes() {
+  try { return JSON.parse(localStorage.getItem(LS_DEL) || '{}') || {}; } catch (e) { return {}; }
+}
+function saveDeletes(d) {
+  try { localStorage.setItem(LS_DEL, JSON.stringify(d || {})); } catch (e) {}
+  if (typeof schedulePush === 'function') schedulePush();
+}
+function markDeleted(key) {
+  if (!key) return;
+  const d = loadDeletes();
+  d[key] = new Date().toISOString();
+  saveDeletes(d);
+}
+function markDeletedMany(keys) {
+  const d = loadDeletes();
+  const now = new Date().toISOString();
+  (keys || []).forEach(k => { if (k) d[k] = now; });
+  saveDeletes(d);
+}
+function clearDeleted(key) {
+  if (!key) return;
+  const d = loadDeletes();
+  if (d[key]) { delete d[key]; saveDeletes(d); }
+}
+function isDeleted(key) {
+  return !!loadDeletes()[key];
+}
+function mergeDeletes(localD, remoteD) {
+  const out = Object.assign({}, localD || {});
+  Object.keys(remoteD || {}).forEach(k => {
+    const a = out[k] || '';
+    const b = remoteD[k] || '';
+    if (!a || b > a) out[k] = b;
+  });
+  // 只保留 30 天内的墓碑，避免无限膨胀
+  const cutoff = Date.now() - 30 * 86400000;
+  Object.keys(out).forEach(k => {
+    const t = Date.parse(out[k] || '') || 0;
+    if (t && t < cutoff) delete out[k];
+  });
+  return out;
+}
+function entryDelKey(id) { return 'e:' + id; }
+function weightDelKey(uid, date) { return 'w:' + uid + ':' + date; }
+function userDelKey(id) { return 'u:' + id; }
+
 function activeUser() {
   const w = loadUsers();
   const lastId = getActiveId();
@@ -246,6 +294,13 @@ function renameUser(id, name) {
 function deleteUser(id) {
   const w = loadUsers();
   if (w.users.length <= 1) return false;
+  const u = w.users.find(x => x.id === id);
+  if (u) {
+    const keys = [userDelKey(id)];
+    (u.entries || []).forEach(e => { if (e && e.id) keys.push(entryDelKey(e.id)); });
+    (u.weights || []).forEach(x => { if (x && x.date) keys.push(weightDelKey(id, x.date)); });
+    markDeletedMany(keys);
+  }
   w.users = w.users.filter(x => x.id !== id);
   if (w.activeId === id || getActiveId() === id) {
     w.activeId = w.users[0].id;
@@ -481,15 +536,16 @@ function collectCloudDoc() {
     v: 2,
     updated: new Date().toISOString(),
     users: loadUsers().users.map(u => {
-      const t = { id: u.id, name: u.name, target: u.target, entries: u.entries || [], weights: u.weights || [] };
-      return t;
+      return { id: u.id, name: u.name, target: u.target, entries: u.entries || [], weights: u.weights || [] };
     }),
-    foods: loadFooddb()
+    foods: loadFooddb(),
+    deletes: loadDeletes()
   };
 }
 
-/* 合并规则：先按 id，同名不同 id 也并成一个（家庭多端常见） */
+/* 合并规则：先按 id，同名不同 id 也并成一个（家庭多端常见）；跳过已删除 */
 function mergeUsers(localUsers, remoteUsers) {
+  const del = loadDeletes();
   const list = [];
   const byKey = {};
   const keyOf = (u) => {
@@ -499,6 +555,7 @@ function mergeUsers(localUsers, remoteUsers) {
   };
   const push = (u) => {
     if (!u) return;
+    if (u.id && del[userDelKey(u.id)]) return;
     const key = keyOf(u);
     if (!key) return;
     if (!byKey[key]) {
@@ -516,12 +573,15 @@ function mergeUsers(localUsers, remoteUsers) {
     if (u.target) t.target = u.target;
     (u.entries || []).forEach(e => {
       if (!e || !e.id) return;
+      if (del[entryDelKey(e.id)]) return;
       const i = t.entries.findIndex(x => x.id === e.id);
       if (i >= 0) t.entries[i] = e;
       else t.entries.push(e);
     });
     (u.weights || []).forEach(w => {
       if (!w || !w.date) return;
+      const uid = u.id || key;
+      if (del[weightDelKey(uid, w.date)] || del[weightDelKey(key, w.date)]) return;
       const i = t.weights.findIndex(x => x.date === w.date);
       if (i >= 0) t.weights[i] = w;
       else t.weights.push(w);
@@ -551,6 +611,9 @@ function mergeFoods(localFoods, remoteFoods) {
 
 function applyCloudDoc(doc) {
   if (!doc) return false;
+  // 先合并删除标记，再合并数据
+  const mergedDel = mergeDeletes(loadDeletes(), doc.deletes || {});
+  localStorage.setItem(LS_DEL, JSON.stringify(mergedDel));
   const wrap = loadUsers();
   const merged = dedupeUsers(mergeUsers(wrap.users, doc.users || []));
   if (!merged.length) return false;
