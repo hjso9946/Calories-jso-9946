@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#0f1419"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>体重</title>
+</head>
+<body>
+<div class="wrap">
+  <div id="navHost"></div>
+
+  <div class="hero">
+    <div class="date">体重记录</div>
+    <div class="total" id="heroW">— <span>斤</span></div>
+    <div class="badge ok" id="heroDelta">记录后显示变化</div>
+  </div>
+
+  <div class="card">
+    <h2>记体重</h2>
+    <div class="field"><label id="wDateLabel">日期</label><input type="date" id="wDate"/></div>
+    <div class="field"><label>体重（斤）</label><input id="wJin" type="number" step="0.1" placeholder="136"/></div>
+    <div class="field"><label>备注</label><input id="wNote" type="text" placeholder="晨起 / 空腹 等"/></div>
+    <button class="btn" id="btnW">保存体重</button>
+  </div>
+
+  <div class="card">
+    <h2>体重趋势 · 折线图</h2>
+    <canvas id="wChart" width="640" height="240"></canvas>
+    <div class="legend">
+      <span><i style="background:#7c6cff"></i>体重（斤）</span>
+    </div>
+    <p class="chart-note" id="wNoteInfo">纵轴：斤</p>
+  </div>
+
+  <div class="card">
+    <h2>历史</h2>
+    <table>
+      <tr><th>日期</th><th>星期</th><th style="text-align:right">体重</th><th>备注</th><th></th></tr>
+      <tbody id="wBody"></tbody>
+    </table>
+  </div>
+
+  <div class="foot">数据存本机浏览器 · 日期带星期</div>
+</div>
+<script src="app.js"></script>
+<script>
+renderNav('weight.html');
+
+const state = {
+  store: loadStore(),
+  date: todayISO()
+};
+
+function drawW() {
+  const list = (state.store.weights || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const series = list.map(w => ({ label: String(w.date).slice(5), v: +w.jin }));
+  drawLine($('#wChart'), series, { color: '#7c6cff', empty: '记录一次体重后显示趋势', height: 240 });
+  if (list.length) {
+    const first = list[0], last = list[list.length - 1];
+    $('#heroW').innerHTML = last.jin + ' <span>斤</span>';
+    if (list.length > 1) {
+      const dlt = (last.jin - first.jin).toFixed(1);
+      $('#heroDelta').textContent = '较首次 ' + (dlt > 0 ? '+' : '') + dlt + ' 斤';
+      $('#heroDelta').className = 'badge ' + (dlt <= 0 ? 'ok' : 'warn');
+      $('#wNoteInfo').textContent = '共 ' + list.length + ' 次 · 从 ' + first.jin + ' 斤 → ' + last.jin + ' 斤（' + (dlt > 0 ? '+' : '') + dlt + ' 斤）';
+    } else {
+      $('#wNoteInfo').textContent = '纵轴：斤';
+    }
+  } else {
+    $('#heroW').innerHTML = '— <span>斤</span>';
+  }
+}
+
+function renderList() {
+  const list = (state.store.weights || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const body = $('#wBody');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">还没有体重记录</td></tr>';
+  } else {
+    body.innerHTML = list.map(w => (
+      '<tr><td>' + w.date + '</td><td>' + weekdayOf(w.date) + '</td>' +
+      '<td class="num">' + w.jin + ' 斤</td><td>' + (w.note || '') + '</td>' +
+      '<td style="text-align:right"><button class="del" data-date="' + w.date + '">×</button></td></tr>'
+    )).join('');
+    body.querySelectorAll('.del').forEach(b => {
+      b.onclick = () => {
+        if (!confirm('删除这条体重？')) return;
+        state.store.weights = state.store.weights.filter(x => x.date !== b.dataset.date);
+        saveStore(state.store);
+        renderList();
+        drawW();
+        toast('已删除');
+      };
+    });
+  }
+  drawW();
+}
+
+function setWDate(ds) {
+  state.date = ds;
+  $('#wDate').value = ds;
+  $('#wDateLabel').textContent = '日期 · ' + fmtDate(ds);
+}
+
+$('#wDate').onchange = (e) => {
+  if (e.target.value) setWDate(e.target.value);
+};
+
+$('#btnW').onclick = () => {
+  const date = $('#wDate').value || state.date;
+  const jin = parseFloat($('#wJin').value);
+  if (isNaN(jin) || jin < 30 || jin > 400) { toast('请填体重（斤）'); return; }
+  const note = $('#wNote').value.trim();
+  state.store.weights = (state.store.weights || []).filter(x => x.date !== date);
+  state.store.weights.push({ date: date, jin: Math.round(jin * 10) / 10, note: note });
+  saveStore(state.store);
+  $('#wJin').value = '';
+  $('#wNote').value = '';
+  renderList();
+  toast('已保存 ' + fmtDate(date));
+};
+
+setWDate(todayISO());
+renderList();
+
+(async function seed() {
+  if (state.store.weights && state.store.weights.length) return;
+  try {
+    const r = await fetch('data.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (Array.isArray(j.weights) && j.weights.length) {
+      state.store.weights = j.weights;
+      saveStore(state.store);
+      renderList();
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

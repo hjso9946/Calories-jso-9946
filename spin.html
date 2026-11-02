@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#0f1419"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>转盘</title>
+<style>
+.wheel-wrap{position:relative;width:min(280px,78vw);margin:8px auto 16px}
+.wheel{width:100%;aspect-ratio:1;border-radius:50%;border:4px solid var(--line);position:relative;overflow:hidden;transition:transform 3.2s cubic-bezier(.15,.9,.2,1)}
+.pointer{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-top:22px solid var(--warn);z-index:2;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4))}
+.spin-result{text-align:center;font-size:20px;font-weight:700;min-height:32px;margin:8px 0 12px}
+.opt-row{display:flex;gap:8px;margin-bottom:8px}
+.opt-row input{flex:1}
+.opt-row button{border:0;background:rgba(240,113,120,.15);color:var(--bad);border-radius:10px;padding:0 12px;font-size:18px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="navHost"></div>
+
+  <div class="hero">
+    <div class="date">今天吃什么</div>
+    <div class="total" style="font-size:32px">转盘随机选</div>
+  </div>
+
+  <div class="card">
+    <h2>转盘</h2>
+    <div class="wheel-wrap">
+      <div class="pointer"></div>
+      <div class="wheel" id="wheel"></div>
+    </div>
+    <div class="spin-result" id="spinResult">点「转一下」随机选</div>
+    <button class="btn" id="btnSpin">转一下</button>
+  </div>
+
+  <div class="card">
+    <h2>选项（自己改）</h2>
+    <div id="optList"></div>
+    <div class="opt-row" style="margin-top:8px">
+      <input id="optNew" type="text" placeholder="添加选项，如：麻辣烫"/>
+      <button class="btn ghost" id="btnAddOpt" style="width:auto;padding:12px 16px">+</button>
+    </div>
+    <p class="chart-note">删除或添加后转盘自动更新。</p>
+  </div>
+
+  <div class="foot">数据存本机浏览器</div>
+</div>
+<script src="app.js"></script>
+<script>
+renderNav('spin.html');
+
+const DEFAULT_SPIN = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
+
+function loadSpin() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LS_SPIN) || 'null');
+    return Array.isArray(a) && a.length ? a : DEFAULT_SPIN.slice();
+  } catch (e) { return DEFAULT_SPIN.slice(); }
+}
+function saveSpin(list) {
+  localStorage.setItem(LS_SPIN, JSON.stringify(list));
+}
+
+let spin = loadSpin();
+let spinning = false;
+
+function renderWheel() {
+  const opts = spin.filter(Boolean);
+  const list = $('#optList');
+  list.innerHTML = opts.map((o, i) => (
+    '<div class="opt-row">' +
+    '<input type="text" data-idx="' + i + '" value="' + String(o).replace(/"/g, '&quot;') + '"/>' +
+    '<button data-rm="' + i + '">×</button></div>'
+  )).join('');
+  list.querySelectorAll('input').forEach(inp => {
+    inp.onchange = () => {
+      spin[+inp.dataset.idx] = inp.value.trim() || spin[+inp.dataset.idx];
+      saveSpin(spin);
+      renderWheel();
+    };
+  });
+  list.querySelectorAll('[data-rm]').forEach(b => {
+    b.onclick = () => {
+      if (spin.length <= 2) { toast('至少留 2 个选项'); return; }
+      spin.splice(+b.dataset.rm, 1);
+      saveSpin(spin);
+      renderWheel();
+    };
+  });
+
+  const wheel = $('#wheel');
+  if (!opts.length) { wheel.innerHTML = ''; return; }
+  const n = opts.length;
+  const colors = ['#5b9dff', '#7c6cff', '#3dd68c', '#f5a524', '#f07178', '#22b8cf', '#e67e22', '#9b59b6'];
+  const seg = 360 / n;
+  const parts = opts.map((_, i) => colors[i % colors.length] + ' ' + (i * seg) + 'deg ' + ((i + 1) * seg) + 'deg');
+  wheel.style.background = 'conic-gradient(from -90deg, ' + parts.join(',') + ')';
+  wheel.innerHTML = '';
+  opts.forEach((o, i) => {
+    const el = document.createElement('div');
+    const rot = i * seg + seg / 2;
+    el.style.cssText = 'position:absolute;left:50%;top:50%;width:50%;height:0;transform:rotate(' + (rot - 90) + 'deg);transform-origin:0 0;';
+    el.innerHTML = '<span style="position:absolute;left:18%;top:6px;transform:translateY(-50%);color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.35)">' + String(o).slice(0, 8) + '</span>';
+    wheel.appendChild(el);
+  });
+}
+
+$('#btnAddOpt').onclick = () => {
+  const v = $('#optNew').value.trim();
+  if (!v) return;
+  spin.push(v);
+  $('#optNew').value = '';
+  saveSpin(spin);
+  renderWheel();
+};
+
+$('#btnSpin').onclick = () => {
+  if (spinning) return;
+  const opts = spin.filter(Boolean);
+  if (opts.length < 2) { toast('至少 2 个选项'); return; }
+  spinning = true;
+  const wheel = $('#wheel');
+  const idx = Math.floor(Math.random() * opts.length);
+  const seg = 360 / opts.length;
+  const base = 360 * 5 - (idx * seg + seg / 2);
+  const cur = wheel._rot || 0;
+  const targetRot = cur + ((base - (cur % 360) + 360) % 360) + 360;
+  wheel._rot = targetRot;
+  wheel.style.transform = 'rotate(' + targetRot + 'deg)';
+  $('#spinResult').textContent = '…';
+  setTimeout(() => {
+    $('#spinResult').textContent = '👉 ' + opts[idx];
+    spinning = false;
+    toast('就吃：' + opts[idx]);
+  }, 3300);
+};
+
+renderWheel();
+</script>
+</body>
+</html>

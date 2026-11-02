@@ -1,0 +1,320 @@
+/* shared helpers */
+const WD = ['周日','周一','周二','周三','周四','周五','周六'];
+const LS_KEY = 'calorie_app_v1';
+const LS_FOOD = 'calorie_fooddb_v1';
+const LS_SPIN = 'calorie_spin_v1';
+
+function $(s, el) { return (el || document).querySelector(s); }
+function $all(s, el) { return Array.from((el || document).querySelectorAll(s)); }
+
+function toast(m) {
+  let t = $('#toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    t.className = 'toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = m;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function weekdayOf(ds) {
+  try { return WD[new Date(ds + 'T12:00:00').getDay()]; } catch (e) { return ''; }
+}
+function fmtDate(ds) { return (ds || '') + ' ' + weekdayOf(ds); }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function shiftDate(ds, n) {
+  const d = new Date(ds + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function mondayOf(ds) {
+  const d = new Date(ds + 'T12:00:00');
+  const w = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - w);
+  return d.toISOString().slice(0, 10);
+}
+function statusLevel(diff) { return diff <= 0 ? 'ok' : (diff <= 100 ? 'warn' : 'bad'); }
+function statusMark(diff) { return diff <= 0 ? '✅' : (diff <= 100 ? '⚠️' : '🔴'); }
+
+function renderNav(active) {
+  const host = $('#navHost');
+  if (!host) return;
+  host.innerHTML = '';
+  const nav = document.createElement('div');
+  nav.className = 'nav';
+  [['index.html', '卡路里'], ['weight.html', '体重'], ['spin.html', '转盘']].forEach(([href, label]) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = label;
+    if (href === active) a.className = 'on';
+    nav.appendChild(a);
+  });
+  host.appendChild(nav);
+}
+
+/* ---------- storage ---------- */
+function loadStore() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {};
+    return {
+      target: raw.target || 1000,
+      entries: Array.isArray(raw.entries) ? raw.entries : [],
+      weights: Array.isArray(raw.weights) ? raw.weights : [],
+      foods: Array.isArray(raw.foods) ? raw.foods : []
+    };
+  } catch (e) {
+    return { target: 1000, entries: [], weights: [], foods: [] };
+  }
+}
+function saveStore(s) {
+  localStorage.setItem(LS_KEY, JSON.stringify(s));
+}
+
+function loadFooddb() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LS_FOOD) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function saveFooddb(list) {
+  localStorage.setItem(LS_FOOD, JSON.stringify(list));
+}
+
+function upsertFood(food, amount, kcal) {
+  const name = String(food || '').trim();
+  if (!name) return;
+  const list = loadFooddb();
+  const i = list.findIndex(x => x.name === name && (x.amount || '') === (amount || ''));
+  if (i >= 0) {
+    list[i].kcal = +kcal || list[i].kcal;
+    list[i].count = (list[i].count || 1) + 1;
+  } else {
+    list.push({ name: name, amount: amount || '', kcal: +kcal || 0, count: 1 });
+  }
+  list.sort((a, b) => (b.count || 0) - (a.count || 0));
+  saveFooddb(list);
+}
+
+function searchFood(q) {
+  const key = String(q || '').trim().toLowerCase();
+  const list = loadFooddb();
+  if (!key) return list.slice(0, 12);
+  return list.filter(x =>
+    x.name.toLowerCase().indexOf(key) >= 0 ||
+    (x.amount || '').toLowerCase().indexOf(key) >= 0
+  ).slice(0, 12);
+}
+
+/* ---------- charts ---------- */
+function drawLine(canvas, series, opts) {
+  opts = opts || {};
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 640;
+  const cssH = opts.height || 240;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const data = series || [];
+  if (!data.length) {
+    ctx.fillStyle = '#8b9bb0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(opts.empty || '暂无数据', cssW / 2, cssH / 2);
+    return;
+  }
+  const vals = data.map(x => +x.v).filter(v => !isNaN(v));
+  let minV = Math.min.apply(null, vals);
+  let maxV = Math.max.apply(null, vals);
+  if (opts.yMin != null) minV = Math.min(minV, opts.yMin);
+  if (opts.yMax != null) maxV = Math.max(maxV, opts.yMax);
+  const pad = Math.max(1, (maxV - minV) * 0.2) || 1;
+  minV -= pad; maxV += pad;
+  const padL = 40, padR = 12, padT = 14, padB = 30;
+  const W = cssW - padL - padR, H = cssH - padT - padB;
+
+  ctx.strokeStyle = '#2a3542';
+  ctx.fillStyle = '#8b9bb0';
+  ctx.font = '10px sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + H * (i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + W, y); ctx.stroke();
+    const v = maxV - (maxV - minV) * (i / 4);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.round(v * 10) / 10), padL - 6, y);
+  }
+  if (opts.target != null) {
+    const ty = padT + H - ((opts.target - minV) / (maxV - minV)) * H;
+    if (ty >= padT && ty <= padT + H) {
+      ctx.strokeStyle = '#8b9bb0';
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(padL, ty); ctx.lineTo(padL + W, ty); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  const pt = (i) => {
+    const x = data.length === 1 ? padL + W / 2 : padL + (W * i / (data.length - 1));
+    const y = padT + H - (((+data[i].v || 0) - minV) / (maxV - minV)) * H;
+    return [x, y];
+  };
+  if (data.length > 1) {
+    ctx.strokeStyle = opts.color || '#5b9dff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    data.forEach((_, i) => {
+      const p = pt(i);
+      if (i === 0) ctx.moveTo(p[0], p[1]);
+      else ctx.lineTo(p[0], p[1]);
+    });
+    ctx.stroke();
+  }
+  data.forEach((d, i) => {
+    const p = pt(i);
+    ctx.fillStyle = opts.color || '#5b9dff';
+    ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, Math.PI * 2); ctx.fill();
+    const every = Math.max(1, Math.ceil(data.length / 7));
+    if (i % every === 0 || i === data.length - 1) {
+      ctx.fillStyle = '#8b9bb0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.label || '', p[0], cssH - 10);
+    }
+  });
+}
+
+function drawBars(canvas, series, opts) {
+  opts = opts || {};
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 640;
+  const cssH = opts.height || 240;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const data = series || [];
+  if (!data.length) return;
+  const target = opts.target || 1000;
+  const maxV = Math.max(target, ...data.map(x => x.v || 0), 100) * 1.15;
+  const padL = 36, padR = 8, padT = 12, padB = 28;
+  const W = cssW - padL - padR, H = cssH - padT - padB;
+  const n = data.length;
+  const gap = 3;
+  const bw = Math.max(4, (W - gap * (n - 1)) / n);
+
+  ctx.strokeStyle = '#2a3542';
+  ctx.fillStyle = '#8b9bb0';
+  ctx.font = '10px sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + H * (i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + W, y); ctx.stroke();
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.round(maxV * (1 - i / 4))), padL - 6, y);
+  }
+  data.forEach((x, i) => {
+    const val = x.v || 0;
+    const h = (val / maxV) * H;
+    const bx = padL + i * (bw + gap);
+    const by = padT + H - h;
+    if (x.v == null) {
+      ctx.fillStyle = '#2a3542';
+      ctx.fillRect(bx, padT + H - 2, bw, 2);
+    } else {
+      const diff = x.v - target;
+      ctx.fillStyle = diff <= 0 ? '#3dd68c' : (diff <= 100 ? '#f5a524' : '#f07178');
+      if (h < 2) ctx.fillRect(bx, padT + H - 2, bw, 2);
+      else ctx.fillRect(bx, by, bw, h);
+    }
+    if (n <= 14 || i % 3 === 0) {
+      ctx.fillStyle = '#8b9bb0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(x.label, bx + bw / 2, cssH - 10);
+    }
+  });
+  const ty = padT + H - (target / maxV) * H;
+  ctx.strokeStyle = '#8b9bb0';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, ty); ctx.lineTo(padL + W, ty); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* shared CSS */
+(function injectCSS() {
+  const css = `
+:root{--bg:#0f1419;--card:#1a222c;--text:#e7eef7;--muted:#8b9bb0;--ok:#3dd68c;--warn:#f5a524;--bad:#f07178;--line:#2a3542;--accent:#5b9dff;--accent2:#7c6cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:14px 14px 40px;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:520px;margin:0 auto}
+.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.nav a{display:block;text-align:center;padding:12px 8px;border-radius:12px;background:rgba(255,255,255,.05);color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}
+.nav a.on{background:rgba(91,157,255,.18);color:var(--accent)}
+.datebar{display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.datebar input{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:14px;outline:none;min-width:0}
+.datebar button{border:0;background:rgba(91,157,255,.15);color:var(--accent);font-weight:700;border-radius:10px;padding:10px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+.hero{text-align:center;padding:8px 0 14px}
+.hero .date{color:var(--muted);font-size:13px}
+.hero .total{font-size:48px;font-weight:700;line-height:1.1;margin:6px 0}
+.hero .total span{font-size:15px;color:var(--muted);font-weight:500}
+.badge{display:inline-block;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600}
+.badge.ok{background:rgba(61,214,140,.15);color:var(--ok)}
+.badge.warn{background:rgba(245,165,36,.15);color:var(--warn)}
+.badge.bad{background:rgba(240,113,120,.15);color:var(--bad)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.card h2{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
+.grid{display:grid;gap:10px}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g2{grid-template-columns:1fr 1fr}
+.stat{background:rgba(255,255,255,.04);border-radius:12px;padding:12px 8px;text-align:center}
+.stat .v{font-size:20px;font-weight:700}
+.stat .k{font-size:11px;color:var(--muted);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:9px 4px;text-align:left}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:500;font-size:11px;border-bottom:1px solid var(--line)}
+tr+tr td{border-top:1px solid var(--line)}
+tr.ok td{color:var(--ok)} tr.bad td{color:var(--bad)}
+.empty{color:var(--muted);text-align:center;padding:20px 0 !important}
+.btn{border:0;border-radius:12px;padding:13px 14px;font-size:15px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;width:100%}
+.btn:active{opacity:.85}
+.btn.ghost{background:rgba(255,255,255,.06);color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:rgba(91,157,255,.12);color:var(--accent);border:1px solid rgba(91,157,255,.25);border-radius:999px;padding:8px 11px;font-size:12px;cursor:pointer;user-select:none}
+.chip:active{transform:scale(.97)}
+input[type=text],input[type=number],input[type=date],input[type=month],select{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:16px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+label{display:block;font-size:11px;color:var(--muted);margin:0 0 6px}
+.field{margin-bottom:12px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:12px}
+.seg button{border:0;background:transparent;color:var(--muted);padding:10px 4px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer}
+.seg button.on{background:rgba(91,157,255,.2);color:var(--accent)}
+.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:14px}
+.tabs button{border:0;background:rgba(255,255,255,.05);color:var(--muted);padding:11px 2px;border-radius:11px;font-size:11px;font-weight:600;cursor:pointer}
+.tabs button.on{background:rgba(91,157,255,.18);color:var(--accent)}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-80px);background:#222c38;color:#fff;padding:12px 18px;border-radius:12px;font-size:14px;transition:transform .25s;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:90vw}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.del{color:var(--bad);background:none;border:0;font-size:18px;cursor:pointer;padding:4px 8px}
+.foot{text-align:center;color:var(--muted);font-size:11px;margin-top:18px;opacity:.75;line-height:1.7}
+.kcal-input{display:flex;gap:8px}
+.kcal-input input{flex:1}
+.plus{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--text);font-size:22px;cursor:pointer;flex-shrink:0}
+canvas{width:100%;height:230px;display:block}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.chart-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+.autocomplete{position:relative}
+.ac-list{position:absolute;left:0;right:0;top:100%;z-index:20;background:#222c38;border:1px solid var(--line);border-radius:12px;margin-top:4px;max-height:220px;overflow:auto;display:none}
+.ac-list.open{display:block}
+.ac-item{padding:11px 12px;cursor:pointer;display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.ac-item:hover,.ac-item:active{background:rgba(91,157,255,.15)}
+.ac-item .m{color:var(--muted);font-size:11px}
+`;
+  const st = document.createElement('style');
+  st.textContent = css;
+  document.head.appendChild(st);
+})();

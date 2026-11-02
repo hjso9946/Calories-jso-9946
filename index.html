@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#0f1419"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>卡路里</title>
+</head>
+<body>
+<div class="wrap">
+  <div id="navHost"></div>
+
+  <div class="datebar">
+    <button id="dPrev">◀</button>
+    <input type="date" id="datePick"/>
+    <button id="dNext">▶</button>
+    <button id="dToday">今天</button>
+  </div>
+
+  <div class="hero">
+    <div class="date" id="heroDate">卡路里</div>
+    <div class="total" id="heroTotal">0 <span>大卡</span></div>
+    <div class="badge ok" id="heroBadge">目标 1000</div>
+  </div>
+
+  <div class="tabs" id="mainTabs">
+    <button class="on" data-tab="today">明细</button>
+    <button data-tab="add">记一笔</button>
+    <button data-tab="week">周报</button>
+    <button data-tab="month">月报</button>
+    <button data-tab="trend">趋势</button>
+    <button data-tab="settings">设置</button>
+  </div>
+
+  <section id="tab-today">
+    <div class="card">
+      <h2>当日明细</h2>
+      <table>
+        <tr><th>餐次</th><th>食物</th><th style="text-align:right">大卡</th><th></th></tr>
+        <tbody id="todayBody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>概况</h2>
+      <div class="grid g3">
+        <div class="stat"><div class="v" id="sTotal">0</div><div class="k">已摄入</div></div>
+        <div class="stat"><div class="v" id="sTarget">1000</div><div class="k">目标</div></div>
+        <div class="stat"><div class="v" id="sGap">—</div><div class="k" id="sGapK">剩余</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-add" hidden>
+    <div class="card">
+      <h2>记到哪天</h2>
+      <div class="field"><label id="addDateLabel">日期</label><input type="date" id="addDate"/></div>
+    </div>
+    <div class="card">
+      <h2>餐次</h2>
+      <div class="seg" id="mealSeg">
+        <button data-meal="早餐">早餐</button>
+        <button class="on" data-meal="午餐">午餐</button>
+        <button data-meal="晚餐">晚餐</button>
+        <button data-meal="加餐">加餐</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>自定义录入（主路径）</h2>
+      <div class="field autocomplete">
+        <label>食物名称 *（输入可联想）</label>
+        <input id="fFood" type="text" placeholder="输入关键词，如：猪脚 / 双吉 / 饭"/>
+        <div class="ac-list" id="acList"></div>
+      </div>
+      <div class="field"><label>份量</label><input id="fAmount" type="text" placeholder="300g / 1个 / 小杯"/></div>
+      <div class="field">
+        <label>热量（大卡）*</label>
+        <div class="kcal-input">
+          <button class="plus" id="kMinus">−</button>
+          <input id="fKcal" type="number" inputmode="numeric" placeholder="0" min="0" step="1"/>
+          <button class="plus" id="kPlus">+</button>
+        </div>
+      </div>
+      <div class="field"><label>备注</label><input id="fNote" type="text" placeholder="去酱 / 预计 / 估算"/></div>
+      <button class="btn" id="btnSave">保存这笔</button>
+      <p class="chart-note">不在库里时会<b>自动收录</b>，下次输入就能联想出来。</p>
+    </div>
+    <div class="card">
+      <h2>快捷点选（可选）</h2>
+      <div class="chips" id="quickChips"></div>
+    </div>
+  </section>
+
+  <section id="tab-week" hidden>
+    <div class="card">
+      <h2>本周 <span id="weekRange"></span></h2>
+      <table>
+        <tr><th>日期</th><th>星期</th><th style="text-align:right">摄入</th><th style="text-align:right">差额</th><th></th></tr>
+        <tbody id="weekBody"></tbody>
+      </table>
+      <div class="grid g3" style="margin-top:12px">
+        <div class="stat"><div class="v" id="wTotal">0</div><div class="k">本周合计</div></div>
+        <div class="stat"><div class="v" id="wAvg">0</div><div class="k">日均</div></div>
+        <div class="stat"><div class="v" id="wOk">0/0</div><div class="k">达标</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>本周摄入柱状图</h2>
+      <canvas id="weekChart" width="640" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:#3dd68c"></i>≤目标</span>
+        <span><i style="background:#f5a524"></i>超 0–100</span>
+        <span><i style="background:#f07178"></i>超 >100</span>
+        <span><i style="background:#8b9bb0"></i>目标线</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-month" hidden>
+    <div class="card">
+      <h2>月报</h2>
+      <div class="field"><label>选择月份</label><input type="month" id="monthPick"/></div>
+      <table>
+        <tr><th>日期</th><th>星期</th><th style="text-align:right">摄入</th><th style="text-align:right">差额</th><th></th></tr>
+        <tbody id="monthBody"></tbody>
+      </table>
+      <div class="grid g3" style="margin-top:12px">
+        <div class="stat"><div class="v" id="mTotal">0</div><div class="k">全月合计</div></div>
+        <div class="stat"><div class="v" id="mAvg">0</div><div class="k">日均</div></div>
+        <div class="stat"><div class="v" id="mOk">0%</div><div class="k">达标率</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>当月每日摄入折线图</h2>
+      <canvas id="monthChart" width="640" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:#5b9dff"></i>每日摄入</span>
+        <span><i style="background:#8b9bb0"></i>目标线</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-trend" hidden>
+    <div class="card">
+      <h2>近 30 天 · 柱状图</h2>
+      <canvas id="trendBar" width="640" height="240"></canvas>
+    </div>
+    <div class="card">
+      <h2>近 30 天 · 折线图（含 7 日均线）</h2>
+      <canvas id="trendLine" width="640" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:#5b9dff"></i>每日摄入</span>
+        <span><i style="background:#7c6cff"></i>7 日均线</span>
+        <span><i style="background:#8b9bb0"></i>目标线</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>近 14 天</h2>
+      <table>
+        <tr><th>日期</th><th>星期</th><th style="text-align:right">摄入</th><th style="text-align:right">差额</th><th></th></tr>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-settings" hidden>
+    <div class="card">
+      <h2>每日摄入目标</h2>
+      <div class="field">
+        <label>目标（大卡）</label>
+        <input id="targetInput" type="number" min="800" max="3000" step="50" placeholder="1000"/>
+      </div>
+      <button class="btn" id="btnTarget">保存目标</button>
+    </div>
+    <div class="card">
+      <h2>数据备份</h2>
+      <button class="btn ghost" id="btnExport" style="margin-bottom:10px">导出 JSON</button>
+      <div class="field"><label>导入 JSON</label><input type="file" id="importFile" accept="application/json"/></div>
+    </div>
+    <div class="card">
+      <h2>说明</h2>
+      <p class="chart-note">
+        · 日期都带星期几<br/>
+        · 体重在「体重」页，转盘在「转盘」页<br/>
+        · 输入关键词可联想；新食物会自动入库<br/>
+        · 周报 / 月报 / 趋势都在本页标签里<br/>
+        · 网页记账 = 0 token
+      </p>
+    </div>
+  </section>
+
+  <div class="foot">卡路里 · 数据存本机浏览器<br/>导出 JSON 可备份 / 发布到 GitHub Pages</div>
+</div>
+<script src="app.js"></script>
+<script>
+renderNav('index.html');
+
+const state = {
+  meal: '午餐',
+  date: todayISO(),
+  store: loadStore(),
+  mode: 'local'
+};
+
+function refreshHero() {
+  const ds = state.date;
+  const target = state.store.target;
+  const dayE = state.store.entries.filter(e => e.date === ds)
+    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  const total = dayE.reduce((s, e) => s + (+e.kcal || 0), 0);
+  const diff = total - target;
+  $('#heroDate').textContent = fmtDate(ds) + (ds === todayISO() ? '（今天）' : '');
+  $('#heroTotal').innerHTML = total + ' <span>大卡</span>';
+  const badge = $('#heroBadge');
+  badge.className = 'badge ' + statusLevel(diff);
+  badge.textContent = '目标 ' + target + ' · ' +
+    (diff <= 0 ? ('还可摄入 ' + (target - total)) : ('已超出 ' + (total - target))) + ' ' + statusMark(diff);
+  $('#sTotal').textContent = total;
+  $('#sTarget').textContent = target;
+  $('#sGap').textContent = diff <= 0 ? (target - total) : ('+' + (total - target));
+  $('#sGapK').textContent = diff <= 0 ? '剩余' : '已超';
+
+  const body = $('#todayBody');
+  if (!dayE.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">这一天还没有记录</td></tr>';
+  } else {
+    body.innerHTML = dayE.map(e => (
+      '<tr><td>' + (e.meal || '') + '</td>' +
+      '<td>' + (e.food || '') + '<div style="color:var(--muted);font-size:11px">' +
+      (e.amount || '') + (e.note ? ' · ' + e.note : '') + '</div></td>' +
+      '<td class="num">' + e.kcal + '</td>' +
+      '<td style="text-align:right"><button class="del" data-id="' + e.id + '">×</button></td></tr>'
+    )).join('');
+    body.querySelectorAll('.del').forEach(b => {
+      b.onclick = () => {
+        if (!confirm('删除这条记录？')) return;
+        state.store.entries = state.store.entries.filter(x => x.id !== b.dataset.id);
+        saveStore(state.store);
+        renderAll();
+        toast('已删除');
+      };
+    });
+  }
+}
+
+function dayTotal(ds) {
+  return state.store.entries.filter(e => e.date === ds).reduce((s, e) => s + (+e.kcal || 0), 0);
+}
+
+function seriesLastDays(n) {
+  const out = [];
+  const target = state.store.target;
+  for (let i = n - 1; i >= 0; i--) {
+    const ds = shiftDate(todayISO(), -i);
+    const has = state.store.entries.some(e => e.date === ds);
+    const v = dayTotal(ds);
+    out.push({
+      date: ds,
+      label: ds.slice(5),
+      v: has ? v : null,
+      diff: has ? v - target : null,
+      mark: has ? statusMark(v - target) : '—'
+    });
+  }
+  return out;
+}
+
+function renderWeek() {
+  const start = mondayOf(state.date);
+  const target = state.store.target;
+  const rows = [];
+  let total = 0, rec = 0, ok = 0;
+  for (let i = 0; i < 7; i++) {
+    const ds = shiftDate(start, i);
+    const has = state.store.entries.some(e => e.date === ds);
+    const v = dayTotal(ds);
+    const diff = has ? v - target : null;
+    if (has) { total += v; rec++; if (diff <= 0) ok++; }
+    rows.push({ ds: ds, v: has ? v : null, diff: diff, mark: has ? statusMark(diff) : '—' });
+  }
+  $('#weekRange').textContent = fmtDate(start) + ' ~ ' + fmtDate(shiftDate(start, 6));
+  $('#weekBody').innerHTML = rows.map(x => {
+    const cls = x.diff == null ? '' : statusLevel(x.diff);
+    return '<tr class="' + cls + '" data-date="' + x.ds + '" style="cursor:pointer">' +
+      '<td>' + x.ds.slice(5) + '</td><td>' + weekdayOf(x.ds) + '</td>' +
+      '<td class="num">' + (x.v == null ? '—' : x.v) + '</td>' +
+      '<td class="num">' + (x.diff == null ? '—' : (x.diff > 0 ? '+' + x.diff : x.diff)) + '</td>' +
+      '<td>' + x.mark + '</td></tr>';
+  }).join('');
+  $('#weekBody').querySelectorAll('tr').forEach(tr => {
+    tr.onclick = () => {
+      setDate(tr.dataset.date);
+      document.querySelector('[data-tab="today"]').click();
+    };
+  });
+  $('#wTotal').textContent = total;
+  $('#wAvg').textContent = rec ? Math.round(total / rec) : 0;
+  $('#wOk').textContent = ok + '/' + rec;
+
+  const chart = rows.map(x => ({ label: x.ds.slice(5), v: x.v }));
+  drawBars($('#weekChart'), chart, { target: target });
+}
+
+function renderMonth() {
+  const ym = $('#monthPick').value || todayISO().slice(0, 7);
+  const target = state.store.target;
+  const [y, m] = ym.split('-').map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const rows = [];
+  let total = 0, rec = 0, ok = 0;
+  const line = [];
+  for (let d = 1; d <= days; d++) {
+    const ds = ym + '-' + String(d).padStart(2, '0');
+    const has = state.store.entries.some(e => e.date === ds);
+    const v = dayTotal(ds);
+    const diff = has ? v - target : null;
+    if (has) { total += v; rec++; if (diff <= 0) ok++; }
+    rows.push({ ds: ds, v: has ? v : null, diff: diff, mark: has ? statusMark(diff) : '—' });
+    line.push({ label: String(d), v: has ? v : null });
+  }
+  $('#monthBody').innerHTML = rows.map(x => {
+    const cls = x.diff == null ? '' : statusLevel(x.diff);
+    return '<tr class="' + cls + '"><td>' + x.ds.slice(5) + '</td><td>' + weekdayOf(x.ds) + '</td>' +
+      '<td class="num">' + (x.v == null ? '—' : x.v) + '</td>' +
+      '<td class="num">' + (x.diff == null ? '—' : (x.diff > 0 ? '+' + x.diff : x.diff)) + '</td>' +
+      '<td>' + x.mark + '</td></tr>';
+  }).join('');
+  $('#mTotal').textContent = total;
+  $('#mAvg').textContent = rec ? Math.round(total / rec) : 0;
+  $('#mOk').textContent = rec ? Math.round(ok / rec * 100) + '%' : '—';
+  drawLine($('#monthChart'), line, { target: target, color: '#5b9dff', empty: '当月暂无记录' });
+}
+
+function renderTrend() {
+  const s = seriesLastDays(30);
+  const target = state.store.target;
+  drawBars($('#trendBar'), s.map(x => ({ label: x.label, v: x.v })), { target: target });
+  // 7-day MA
+  const ma = s.map((x, i) => {
+    const slice = s.slice(Math.max(0, i - 6), i + 1).map(d => d.v).filter(v => v != null);
+    return {
+      label: x.label,
+      v: slice.length ? Math.round(slice.reduce((a, b) => a + b, 0) / slice.length) : null
+    };
+  });
+  drawLine($('#trendLine'), s.map(x => ({ label: x.label, v: x.v })), {
+    target: target, color: '#5b9dff', empty: '暂无数据'
+  });
+  // overlay MA by drawing again on top would clear; combine into one series pass:
+  // simple second pass using drawLine is OK for MA view — skip overlay for clarity
+  $('#histBody').innerHTML = s.slice(-14).reverse().map(x => {
+    const cls = x.diff == null ? '' : statusLevel(x.diff);
+    return '<tr class="' + cls + '" data-date="' + x.date + '" style="cursor:pointer">' +
+      '<td>' + x.date.slice(5) + '</td><td>' + weekdayOf(x.date) + '</td>' +
+      '<td class="num">' + (x.v == null ? '—' : x.v) + '</td>' +
+      '<td class="num">' + (x.diff == null ? '—' : (x.diff > 0 ? '+' + x.diff : x.diff)) + '</td>' +
+      '<td>' + x.mark + '</td></tr>';
+  }).join('');
+  $('#histBody').querySelectorAll('tr').forEach(tr => {
+    tr.onclick = () => {
+      setDate(tr.dataset.date);
+      document.querySelector('[data-tab="today"]').click();
+    };
+  });
+}
+
+function renderAll() {
+  refreshHero();
+  renderWeek();
+  renderMonth();
+  renderTrend();
+  renderQuick();
+  $('#targetInput').value = state.store.target;
+}
+
+function setDate(ds) {
+  state.date = ds;
+  $('#datePick').value = ds;
+  $('#addDate').value = ds;
+  $('#addDateLabel').textContent = '日期 · ' + fmtDate(ds);
+  renderAll();
+}
+
+function renderQuick() {
+  const chips = $('#quickChips');
+  const foods = loadFooddb();
+  const list = foods.length ? foods.slice(0, 16) : [
+    { name: '米饭', amount: '100g', kcal: 116 },
+    { name: '鸡蛋', amount: '1个', kcal: 82 },
+    { name: '麦当劳双吉（去酱）', amount: '1个', kcal: 360 },
+    { name: '无糖可乐', amount: '1杯', kcal: 0 },
+    { name: '香蕉拿铁', amount: '小杯', kcal: 250 },
+    { name: '鸡胸肉', amount: '1块', kcal: 127 }
+  ];
+  chips.innerHTML = '';
+  list.forEach(q => {
+    const el = document.createElement('div');
+    el.className = 'chip';
+    el.textContent = q.name + ' · ' + q.kcal;
+    el.onclick = () => {
+      $('#fFood').value = q.name;
+      $('#fAmount').value = q.amount || '';
+      $('#fKcal').value = q.kcal;
+      hideAC();
+      toast('已填入，可改');
+    };
+    chips.appendChild(el);
+  });
+}
+
+/* autocomplete */
+function hideAC() { $('#acList').classList.remove('open'); }
+function showAC(q) {
+  const list = searchFood(q);
+  const box = $('#acList');
+  if (!list.length) { hideAC(); return; }
+  box.innerHTML = list.map((x, i) => (
+    '<div class="ac-item" data-i="' + i + '">' +
+    '<span>' + x.name + '</span>' +
+    '<span class="m">' + (x.amount || '') + ' · ' + x.kcal + ' 大卡</span></div>'
+  )).join('');
+  box.classList.add('open');
+  box.querySelectorAll('.ac-item').forEach(item => {
+    item.onclick = () => {
+      const x = list[+item.dataset.i];
+      $('#fFood').value = x.name;
+      $('#fAmount').value = x.amount || '';
+      $('#fKcal').value = x.kcal;
+      hideAC();
+    };
+  });
+}
+
+$('#fFood').addEventListener('input', function () { showAC(this.value); });
+$('#fFood').addEventListener('focus', function () { showAC(this.value); });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.autocomplete')) hideAC();
+});
+
+/* events */
+$('#datePick').onchange = (e) => setDate(e.target.value || state.date);
+$('#addDate').onchange = (e) => {
+  if (e.target.value) {
+    state.date = e.target.value;
+    $('#datePick').value = e.target.value;
+    $('#addDateLabel').textContent = '日期 · ' + fmtDate(e.target.value);
+  }
+};
+$('#dPrev').onclick = () => setDate(shiftDate(state.date, -1));
+$('#dNext').onclick = () => setDate(shiftDate(state.date, 1));
+$('#dToday').onclick = () => setDate(todayISO());
+
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    ['today', 'add', 'week', 'month', 'trend', 'settings'].forEach(k => {
+      $('#tab-' + k).hidden = (k !== btn.dataset.tab);
+    });
+    if (btn.dataset.tab === 'week') renderWeek();
+    if (btn.dataset.tab === 'month') renderMonth();
+    if (btn.dataset.tab === 'trend') renderTrend();
+    if (btn.dataset.tab === 'settings') $('#targetInput').value = state.store.target;
+  };
+});
+
+document.querySelectorAll('#mealSeg button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#mealSeg button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    state.meal = btn.dataset.meal;
+  };
+});
+
+$('#kMinus').onclick = () => { $('#fKcal').value = Math.max(0, (+$('#fKcal').value || 0) - 10); };
+$('#kPlus').onclick = () => { $('#fKcal').value = (+$('#fKcal').value || 0) + 10; };
+
+$('#btnSave').onclick = () => {
+  const food = $('#fFood').value.trim();
+  const amount = $('#fAmount').value.trim() || '1份';
+  const kcal = parseInt($('#fKcal').value, 10);
+  const onDate = $('#addDate').value || state.date;
+  const note = $('#fNote').value.trim();
+  if (!food) { toast('请填食物名称'); return; }
+  if (isNaN(kcal) || kcal < 0) { toast('请填热量'); return; }
+
+  const prefix = onDate.replace(/-/g, '');
+  const seq = 1 + state.store.entries.filter(e => String(e.id || '').startsWith(prefix)).length;
+  state.store.entries.push({
+    id: prefix + '-' + String(seq).padStart(3, '0'),
+    date: onDate,
+    meal: state.meal,
+    food: food,
+    amount: amount,
+    kcal: kcal,
+    note: note
+  });
+  saveStore(state.store);
+  upsertFood(food, amount, kcal);
+
+  $('#fFood').value = ''; $('#fAmount').value = ''; $('#fKcal').value = ''; $('#fNote').value = '';
+  hideAC();
+  renderAll();
+  toast('已保存到 ' + fmtDate(onDate) + ' · 已入食物库');
+  document.querySelector('[data-tab="today"]').click();
+};
+
+$('#btnTarget').onclick = () => {
+  const v = parseInt($('#targetInput').value, 10);
+  if (isNaN(v) || v < 800 || v > 3000) { toast('目标建议 800–3000'); return; }
+  state.store.target = v;
+  saveStore(state.store);
+  renderAll();
+  toast('目标已改为 ' + v + ' 大卡');
+};
+
+$('#btnExport').onclick = () => {
+  const payload = {
+    target: state.store.target,
+    entries: state.store.entries,
+    weights: state.store.weights,
+    foods: loadFooddb(),
+    spin: JSON.parse(localStorage.getItem(LS_SPIN) || '[]'),
+    exported: todayISO()
+  };
+  download('calorie-backup-' + todayISO() + '.json', JSON.stringify(payload, null, 2));
+  toast('已导出');
+};
+
+$('#importFile').onchange = (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const j = JSON.parse(r.result);
+      if (j.target) state.store.target = j.target;
+      if (Array.isArray(j.entries)) state.store.entries = j.entries;
+      if (Array.isArray(j.weights)) state.store.weights = j.weights;
+      if (Array.isArray(j.foods)) saveFooddb(j.foods);
+      if (Array.isArray(j.spin)) localStorage.setItem(LS_SPIN, JSON.stringify(j.spin));
+      saveStore(state.store);
+      renderAll();
+      toast('导入成功');
+    } catch (err) { toast('文件格式不对'); }
+  };
+  r.readAsText(f);
+};
+
+/* seed fooddb from defaults if empty */
+(function seedFoods() {
+  if (loadFooddb().length) return;
+  saveFooddb([
+    { name: '米饭', amount: '100g', kcal: 116, count: 5 },
+    { name: '鸡蛋', amount: '1个', kcal: 82, count: 5 },
+    { name: '麦当劳双吉（去酱）', amount: '1个', kcal: 360, count: 4 },
+    { name: '无糖可乐', amount: '1杯', kcal: 0, count: 4 },
+    { name: '香蕉拿铁', amount: '小杯', kcal: 250, count: 3 },
+    { name: '鸡胸肉', amount: '1块', kcal: 127, count: 3 },
+    { name: '牛奶', amount: '250ml', kcal: 173, count: 2 },
+    { name: '猪脚饭-米饭', amount: '300g', kcal: 348, count: 2 },
+    { name: '猪脚（3/4瘦）', amount: '200g', kcal: 360, count: 2 },
+    { name: '自选菜', amount: '1份', kcal: 50, count: 2 },
+    { name: '西兰花', amount: '100g', kcal: 34, count: 1 },
+    { name: '苹果', amount: '1个', kcal: 80, count: 1 },
+    { name: '全麦面包', amount: '1片', kcal: 80, count: 1 },
+    { name: '酸奶', amount: '1杯', kcal: 100, count: 1 },
+    { name: '薯条', amount: '1份', kcal: 205, count: 1 },
+    { name: '火鸡面', amount: '1包', kcal: 500, count: 1 }
+  ]);
+})();
+
+/* seed from published data.json (GitHub Pages / local share) */
+async function seedFromDataJson() {
+  if (state.store.entries.length) return;
+  try {
+    const r = await fetch('data.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.target) state.store.target = j.target;
+    if (Array.isArray(j.entries) && j.entries.length) state.store.entries = j.entries;
+    if (Array.isArray(j.weights)) state.store.weights = j.weights;
+    if (Array.isArray(j.foods) && j.foods.length) saveFooddb(j.foods);
+    saveStore(state.store);
+    renderAll();
+    toast('已载入公开数据');
+  } catch (e) {}
+}
+
+setDate(todayISO());
+seedFromDataJson();
+</script>
+</body>
+</html>
