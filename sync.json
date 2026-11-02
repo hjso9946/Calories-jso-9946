@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "updated": "2026-11-02T10:29:44.897Z",
+  "updated": "2026-11-02T10:29:54.436Z",
   "users": [
     {
       "id": "umvyyztq2i9qz",
@@ -32,6 +32,116 @@
         }
       ],
       "weights": [
+        {
+          "date": "2026-11-02",
+          "jin": 136,
+          "kg": 68,
+          "note": "初始"
+        }
+      ]
+    },
+    {
+      "id": "umvyyyvui193q",
+      "name": "hj",
+      "target": 1000,
+      "entries": [
+        {
+          "id": "20261030-rf2",
+          "date": "2026-10-30",
+          "meal": "早餐",
+          "food": "猪脚饭-米饭",
+          "amount": "300g",
+          "kcal": 348,
+          "note": ""
+        },
+        {
+          "id": "20261030-3wn",
+          "date": "2026-10-30",
+          "meal": "早餐",
+          "food": "manner香蕉拿铁",
+          "amount": "小杯热",
+          "kcal": 250,
+          "note": ""
+        },
+        {
+          "id": "20261030-hw3",
+          "date": "2026-10-30",
+          "meal": "早餐",
+          "food": "麦当劳双吉（去酱）",
+          "amount": "1个",
+          "kcal": 360,
+          "note": ""
+        },
+        {
+          "id": "20261030-h2w",
+          "date": "2026-10-30",
+          "meal": "早餐",
+          "food": "无糖可乐",
+          "amount": "1杯",
+          "kcal": 0,
+          "note": ""
+        },
+        {
+          "id": "20261030-0k1",
+          "date": "2026-10-30",
+          "meal": "早餐",
+          "food": "猪脚（3/4瘦）",
+          "amount": "200g",
+          "kcal": 360,
+          "note": ""
+        },
+        {
+          "id": "20261102-u7h",
+          "date": "2026-11-02",
+          "meal": "早餐",
+          "food": "马记永番茄牛肉拉面",
+          "amount": "1",
+          "kcal": 400,
+          "note": ""
+        },
+        {
+          "id": "20261102-kjk",
+          "date": "2026-11-02",
+          "meal": "早餐",
+          "food": "羊肉串",
+          "amount": "1",
+          "kcal": 146,
+          "note": ""
+        },
+        {
+          "id": "20261102-kkm",
+          "date": "2026-11-02",
+          "meal": "早餐",
+          "food": "麦当劳双吉（去酱）",
+          "amount": "1个",
+          "kcal": 360,
+          "note": ""
+        },
+        {
+          "id": "20261102-xte",
+          "date": "2026-11-02",
+          "meal": "早餐",
+          "food": "薯条",
+          "amount": "120",
+          "kcal": 420,
+          "note": ""
+        },
+        {
+          "id": "20261102-94t",
+          "date": "2026-11-02",
+          "meal": "早餐",
+          "food": "香芋派",
+          "amount": "1",
+          "kcal": 232,
+          "note": ""
+        }
+      ],
+      "weights": [
+        {
+          "date": "2026-11-01",
+          "jin": 136,
+          "note": ""
+        },
         {
           "date": "2026-11-02",
           "jin": 136,
@@ -85,39 +195,63 @@
       "count": 93
     },
     {
+      "name": "麦当劳双吉（去酱）",
+      "amount": "1个",
+      "kcal": 360,
+      "count": 3
+    },
+    {
       "name": "猪脚饭-米饭",
       "amount": "300g",
       "kcal": 348,
-      "count": 1
+      "count": 2
     },
     {
       "name": "猪脚（3/4瘦）",
       "amount": "200g",
       "kcal": 360,
-      "count": 1
+      "count": 2
     },
     {
       "name": "manner香蕉拿铁",
       "amount": "小杯热",
       "kcal": 250,
-      "count": 1
-    },
-    {
-      "name": "麦当劳双吉（去酱）",
-      "amount": "1个",
-      "kcal": 360,
-      "count": 1
+      "count": 2
     },
     {
       "name": "无糖可乐",
       "amount": "1杯",
       "kcal": 0,
-      "count": 1
+      "count": 2
+    },
+    {
+      "name": "马记永番茄牛肉拉面",
+      "amount": "1",
+      "kcal": 400,
+      "count": 2
+    },
+    {
+      "name": "羊肉串",
+      "amount": "1",
+      "kcal": 146,
+      "count": 2
     },
     {
       "name": "香蕉栗子拿铁",
       "amount": "500ml",
       "kcal": 600,
+      "count": 1
+    },
+    {
+      "name": "薯条",
+      "amount": "120",
+      "kcal": 420,
+      "count": 1
+    },
+    {
+      "name": "香芋派",
+      "amount": "1",
+      "kcal": 232,
       "count": 1
     }
   ],
