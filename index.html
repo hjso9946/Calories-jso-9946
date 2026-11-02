@@ -130,14 +130,12 @@
     <button class="btn" id="btnTarget">保存目标</button>
 
     <h2 style="margin-top:20px">管理员模式</h2>
-    <p class="chart-note" id="adminStatus">未开启 · 删除用户/清空数据需要先开启</p>
+    <p class="chart-note" id="adminStatus">未开启 · 仅删除用户需要先开启</p>
     <div class="grid g2">
       <button class="btn ghost" id="btnAdminOn">开启管理员</button>
       <button class="btn ghost" id="btnAdminOff">关闭管理员</button>
     </div>
-    <div id="dangerZone" hidden>
-      <button class="btn" id="btnClear" style="margin-top:12px;background:rgba(240,113,120,.2);color:#f07178">清空当前用户记录</button>
-    </div>
+    <button class="btn" id="btnClear" style="margin-top:12px;background:rgba(240,113,120,.2);color:#f07178">清空当前用户记录</button>
 
     <h2 style="margin-top:20px">云端同步（两端互通）</h2>
     <p class="chart-note" id="syncStatus">未开启</p>
@@ -546,7 +544,6 @@ $('#btnImport').onclick = () => {
 };
 
 $('#btnClear').onclick = () => {
-  if (!isAdmin()) { toast('先开启管理员模式'); return; }
   if (!confirm('清空「' + u().name + '」全部记录？')) return;
   const st = u();
   st.entries = [];
@@ -597,10 +594,9 @@ function showSettings(show) {
     $('#targetInput').value = u().target || 1000;
     renderSyncUI();
     $('#adminStatus').textContent = isAdmin()
-      ? '已开启 · 可删除用户 / 清空数据'
-      : '未开启 · 删除用户/清空数据需要先开启';
+      ? '已开启 · 可删除用户'
+      : '未开启 · 仅删除用户需要先开启';
     $('#adminStatus').style.color = isAdmin() ? '#3dd68c' : '#f5a524';
-    $('#dangerZone').hidden = !isAdmin();
     $('#btnAdminOn').hidden = isAdmin();
     $('#btnAdminOff').hidden = !isAdmin();
   } else {
@@ -614,7 +610,7 @@ $('#btnSettings').onclick = () => showSettings(true);
 $('#btnBack').onclick = () => showSettings(false);
 
 $('#btnAdminOn').onclick = () => {
-  if (!confirm('开启管理员模式？开启后才能删除用户和清空数据。')) return;
+  if (!confirm('开启管理员模式？开启后才能删除用户。')) return;
   setAdmin(true);
   showSettings(true);
   if (typeof renderUserBar === 'function') {
