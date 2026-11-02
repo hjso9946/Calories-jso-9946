@@ -6,6 +6,7 @@ const LS_OLD = 'calorie_app_v1';
 const LS_SYNC = 'calorie_sync_v1';
 const LS_ADMIN = 'calorie_admin_v1';
 const LS_ACTIVE = 'calorie_active_user_v1';
+const LS_SPINS = 'calorie_spins_v1'; // 本机多转盘，不同步
 const SYNC_DEFAULT = {
   owner: 'hjso9946',
   repo: 'Calories-jso-9946',
@@ -77,16 +78,13 @@ function renderNav(active) {
 }
 
 /* ---------- multi-user store ---------- */
-const DEFAULT_SPIN = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
-
 function defaultUser(name) {
   return {
     id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: name || '我',
     target: 1000,
     entries: [],
-    weights: [],
-    spin: DEFAULT_SPIN.slice()
+    weights: []
   };
 }
 
@@ -101,7 +99,20 @@ function normalizeUser(u) {
   if (!u) return null;
   if (!Array.isArray(u.entries)) u.entries = [];
   if (!Array.isArray(u.weights)) u.weights = [];
-  if (!Array.isArray(u.spin) || !u.spin.length) u.spin = DEFAULT_SPIN.slice();
+  // 转盘迁到本机多转盘，不再跟用户/云端走
+  if (Array.isArray(u.spin) && u.spin.length) {
+    try {
+      const wrap = JSON.parse(localStorage.getItem(LS_SPINS) || 'null');
+      if (!wrap || !Array.isArray(wrap.boards) || !wrap.boards.length) {
+        const seed = {
+          activeId: 's_default',
+          boards: [{ id: 's_default', name: '今天吃什么', opts: u.spin.slice() }]
+        };
+        localStorage.setItem(LS_SPINS, JSON.stringify(seed));
+      }
+    } catch (e) {}
+  }
+  delete u.spin;
   if (!u.target) u.target = 1000;
   if (!u.name) u.name = '用户';
   return u;
@@ -164,7 +175,6 @@ function loadUsers() {
       u.target = old.target || 1000;
       u.entries = old.entries || [];
       u.weights = old.weights || [];
-      if (old.spin && old.spin.length) u.spin = old.spin;
       if (old.foods && old.foods.length && !loadFooddb().length) saveFooddb(old.foods);
       wrap = { activeId: u.id, users: [u] };
       localStorage.setItem(LS_USERS, JSON.stringify(wrap));
@@ -470,7 +480,10 @@ function collectCloudDoc() {
   return {
     v: 2,
     updated: new Date().toISOString(),
-    users: loadUsers().users,
+    users: loadUsers().users.map(u => {
+      const t = { id: u.id, name: u.name, target: u.target, entries: u.entries || [], weights: u.weights || [] };
+      return t;
+    }),
     foods: loadFooddb()
   };
 }
@@ -494,15 +507,13 @@ function mergeUsers(localUsers, remoteUsers) {
         name: u.name || key,
         target: u.target || 1000,
         entries: [],
-        weights: [],
-        spin: Array.isArray(u.spin) && u.spin.length ? u.spin.slice() : defaultUser().spin
+        weights: []
       };
       list.push(byKey[key]);
     }
     const t = byKey[key];
     if (u.name) t.name = u.name;
     if (u.target) t.target = u.target;
-    if (Array.isArray(u.spin) && u.spin.length) t.spin = u.spin.slice();
     (u.entries || []).forEach(e => {
       if (!e || !e.id) return;
       const i = t.entries.findIndex(x => x.id === e.id);

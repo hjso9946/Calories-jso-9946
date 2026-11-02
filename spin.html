@@ -14,6 +14,13 @@
 .opt-row{display:flex;gap:8px;margin-bottom:8px}
 .opt-row input{flex:1}
 .opt-row button{border:0;background:rgba(240,113,120,.15);color:var(--bad);border-radius:10px;padding:0 12px;font-size:18px;cursor:pointer}
+.board-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px}
+.board-tab{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer}
+.board-tab.on{background:rgba(91,157,255,.18);border-color:#5b9dff;color:#5b9dff;font-weight:700}
+.board-tab.add{border-style:dashed;opacity:.75}
+.board-tools{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.board-tools input{flex:1}
+.board-tools button{border:0;background:rgba(240,113,120,.15);color:var(--bad);border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -28,6 +35,7 @@
 
   <div class="card">
     <h2>转盘</h2>
+    <div class="board-tabs" id="boardTabs"></div>
     <div class="wheel-wrap">
       <div class="pointer"></div>
       <div class="wheel" id="wheel"></div>
@@ -38,38 +46,66 @@
 
   <div class="card">
     <h2>选项（可编辑）</h2>
+    <div class="board-tools">
+      <input type="text" id="boardName" placeholder="转盘名称"/>
+      <button id="btnRename">改名</button>
+      <button id="btnDelBoard">删转盘</button>
+    </div>
     <div id="optList"></div>
     <div class="opt-row" style="margin-top:8px">
       <input type="text" id="newOpt" placeholder="添加选项，如：麻辣烫"/>
       <button class="btn" id="btnAddOpt" style="width:auto;padding:12px 16px">加</button>
     </div>
-    <p class="chart-note">选项按用户保存 · 食物库仍全局共享</p>
+    <p class="chart-note">转盘只存本机 · 不同步 · 可建多个</p>
   </div>
 
-  <div class="foot">数据存本机浏览器</div>
+  <div class="foot">转盘选项仅本机</div>
 </div>
 <script src="app.js"></script>
 <script>
 renderNav('spin.html');
 
 const COLORS = ['#5b9dff','#7c6cff','#3dd68c','#f5a524','#f07178','#2dd4bf','#c084fc','#fb7185'];
+const LS_SPIN = 'calorie_spins_v1';
+const DEFAULT_OPTS = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
 let spinning = false;
+let wheelAngle = 0;
 
 function u() { return activeUser(); }
 
-function getOpts() {
-  const st = u();
-  if (!Array.isArray(st.spin) || !st.spin.length) {
-    st.spin = ['猪脚饭', '麦当劳双吉', '麻辣烫', '自选菜', '鸡胸肉沙拉', '寿司', '火鸡面', '黄焖鸡'];
-    saveActiveUser(st);
+function loadBoards() {
+  let wrap = null;
+  try { wrap = JSON.parse(localStorage.getItem(LS_SPIN) || 'null'); } catch (e) {}
+  if (wrap && Array.isArray(wrap.boards) && wrap.boards.length) {
+    if (!wrap.boards.some(b => b.id === wrap.activeId)) wrap.activeId = wrap.boards[0].id;
+    return wrap;
   }
-  return st.spin;
+  wrap = {
+    activeId: 's_default',
+    boards: [{ id: 's_default', name: '今天吃什么', opts: DEFAULT_OPTS.slice() }]
+  };
+  saveBoards(wrap);
+  return wrap;
+}
+
+function saveBoards(wrap) {
+  try { localStorage.setItem(LS_SPIN, JSON.stringify(wrap)); } catch (e) {}
+}
+
+function activeBoard() {
+  const w = loadBoards();
+  return w.boards.find(b => b.id === w.activeId) || w.boards[0];
 }
 
 function setOpts(list) {
-  const st = u();
-  st.spin = list;
-  saveActiveUser(st);
+  const w = loadBoards();
+  const b = w.boards.find(x => x.id === w.activeId) || w.boards[0];
+  b.opts = list;
+  saveBoards(w);
+}
+
+function getOpts() {
+  return activeBoard().opts || [];
 }
 
 function drawWheel() {
@@ -88,7 +124,6 @@ function drawWheel() {
     stops.push(COLORS[i % COLORS.length] + ' ' + a + 'deg ' + (a + seg) + 'deg');
   }
   wheel.style.background = 'conic-gradient(' + stops.join(',') + ')';
-  // 文字放在每格正中：CSS rotate 与 conic 同为从顶部顺时针
   const R = Math.round((wheel.clientWidth || 260) * 0.32);
   wheel.innerHTML = opts.map((t, i) => {
     const mid = (i + 0.5) * seg;
@@ -101,8 +136,37 @@ function drawWheel() {
   }).join('');
 }
 
+function renderTabs() {
+  const w = loadBoards();
+  $('#boardTabs').innerHTML = w.boards.map(b => (
+    '<button class="board-tab' + (b.id === w.activeId ? ' on' : '') + '" data-b="' + b.id + '">' +
+    String(b.name || '未命名').replace(/</g, '&lt;') + '</button>'
+  )).join('') + '<button class="board-tab add" id="btnAddBoard">＋ 新转盘</button>';
+
+  $('#boardTabs').querySelectorAll('[data-b]').forEach(btn => {
+    btn.onclick = () => {
+      w.activeId = btn.dataset.b;
+      saveBoards(w);
+      refreshAll();
+    };
+  });
+  $('#btnAddBoard').onclick = () => {
+    const name = prompt('新转盘名称', '转盘' + (w.boards.length + 1));
+    if (name === null) return;
+    const clean = name.trim() || ('转盘' + (w.boards.length + 1));
+    const id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    w.boards.push({ id: id, name: clean, opts: DEFAULT_OPTS.slice() });
+    w.activeId = id;
+    saveBoards(w);
+    refreshAll();
+    toast('已新建');
+  };
+}
+
 function renderOpts() {
   const opts = getOpts();
+  const b = activeBoard();
+  $('#boardName').value = b.name || '';
   $('#optList').innerHTML = opts.map((t, i) => (
     '<div class="opt-row"><input type="text" data-i="' + i + '" value="' + String(t).replace(/"/g, '&quot;') + '"/>' +
     '<button data-del="' + i + '">×</button></div>'
@@ -140,7 +204,28 @@ $('#btnAddOpt').onclick = () => {
   toast('已添加');
 };
 
-let wheelAngle = 0;
+$('#btnRename').onclick = () => {
+  const w = loadBoards();
+  const b = w.boards.find(x => x.id === w.activeId) || w.boards[0];
+  const name = $('#boardName').value.trim();
+  if (!name) { toast('填名称'); return; }
+  b.name = name;
+  saveBoards(w);
+  renderTabs();
+  toast('已改名');
+};
+
+$('#btnDelBoard').onclick = () => {
+  const w = loadBoards();
+  if (w.boards.length <= 1) { toast('至少留 1 个转盘'); return; }
+  const b = w.boards.find(x => x.id === w.activeId) || w.boards[0];
+  if (!confirm('删除转盘「' + b.name + '」？')) return;
+  w.boards = w.boards.filter(x => x.id !== b.id);
+  w.activeId = w.boards[0].id;
+  saveBoards(w);
+  refreshAll();
+  toast('已删除');
+};
 
 $('#btnSpin').onclick = () => {
   if (spinning) return;
@@ -150,8 +235,6 @@ $('#btnSpin').onclick = () => {
   $('#spinResult').textContent = '转动中…';
   const idx = Math.floor(Math.random() * opts.length);
   const seg = 360 / opts.length;
-  // 指针在正上方。把 idx 格的中心转到正上方：
-  // (idx+0.5)*seg + angle ≡ 0 (mod 360) → angle = 360k - (idx+0.5)*seg
   const base = Math.ceil(wheelAngle / 360) * 360 + 360 * 5;
   const target = base - (idx + 0.5) * seg;
   wheelAngle = target;
@@ -165,6 +248,7 @@ $('#btnSpin').onclick = () => {
 
 function refreshAll() {
   $('#spinWho').textContent = u().name + ' · 今天吃什么';
+  renderTabs();
   renderOpts();
   drawWheel();
   $('#spinResult').textContent = '点下方按钮开始';
@@ -174,8 +258,7 @@ function refreshAll() {
 
 renderUserBar(refreshAll);
 refreshAll();
-startSyncLoop();
-window.addEventListener('calorie-sync', refreshAll);
+// 转盘本机独立，云端同步不影响
 </script>
 </body>
 </html>
