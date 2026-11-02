@@ -4,6 +4,7 @@ const LS_USERS = 'calorie_users_v2';
 const LS_FOOD = 'calorie_fooddb_v1';
 const LS_OLD = 'calorie_app_v1';
 const LS_SYNC = 'calorie_sync_v1';
+const LS_ADMIN = 'calorie_admin_v1';
 const SYNC_DEFAULT = {
   owner: 'hjso9946',
   repo: 'Calories-jso-9946',
@@ -11,6 +12,16 @@ const SYNC_DEFAULT = {
   token: '',
   enabled: false
 };
+
+function isAdmin() {
+  try { return localStorage.getItem(LS_ADMIN) === '1'; } catch (e) { return false; }
+}
+function setAdmin(on) {
+  try {
+    if (on) localStorage.setItem(LS_ADMIN, '1');
+    else localStorage.removeItem(LS_ADMIN);
+  } catch (e) {}
+}
 
 function $(s, el) { return (el || document).querySelector(s); }
 function $all(s, el) { return Array.from((el || document).querySelectorAll(s)); }
@@ -223,7 +234,9 @@ function renderUserBar(onSwitch) {
   const del = document.createElement('button');
   del.className = 'user-btn danger';
   del.textContent = '删';
+  del.hidden = !isAdmin();
   del.onclick = () => {
+    if (!isAdmin()) { toast('先在设置里开启管理员模式'); return; }
     if (loadUsers().users.length <= 1) { toast('至少留 1 个用户'); return; }
     if (!confirm('删除用户「' + activeUser().name + '」及其全部记录？')) return;
     deleteUser(activeUser().id);
@@ -822,6 +835,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .hero .date{color:var(--muted);font-size:13px}
 .hero .total{font-size:48px;font-weight:700;line-height:1.1;margin:6px 0}
 .hero .total span{font-size:15px;color:var(--muted);font-weight:500}
+.kcal-big{font-size:64px;font-weight:800;line-height:1.05;margin:4px 0 2px;letter-spacing:-1px}
+.kcal-big em{font-style:normal;font-size:18px;font-weight:700;color:var(--muted);margin-left:6px}
+.kcal-sub{font-size:14px;color:var(--muted);margin-bottom:10px}
 .badge{display:inline-block;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600}
 .badge.ok{background:rgba(61,214,140,.15);color:var(--ok)}
 .badge.warn{background:rgba(245,165,36,.15);color:var(--warn)}

@@ -9,19 +9,21 @@
 </head>
 <body>
 <div class="wrap">
-  <div id="navHost"></div>
   <div id="userBar"></div>
+  <div id="navHost"></div>
 
   <div class="datebar">
     <button id="btnPrev">◀</button>
     <input type="date" id="dateInput"/>
     <button id="btnNext">▶</button>
     <button id="btnToday">今天</button>
+    <button id="btnSettings" title="设置">⚙</button>
   </div>
 
   <div class="hero">
     <div class="date" id="heroDate">—</div>
-    <div class="total"><span id="heroTotal">0</span> <span>/ <span id="heroTarget">1000</span> 大卡</span></div>
+    <div class="kcal-big"><span id="heroTotal">0</span><em>大卡</em></div>
+    <div class="kcal-sub">目标 <span id="heroTarget">1000</span></div>
     <div class="badge" id="heroBadge">—</div>
   </div>
 
@@ -31,7 +33,6 @@
     <button data-t="week">周报</button>
     <button data-t="month">月报</button>
     <button data-t="trend">趋势</button>
-    <button data-t="set">设置</button>
   </div>
 
   <div class="card tab-pane" id="tab-list">
@@ -40,6 +41,8 @@
       <tr><th>餐次</th><th>食物</th><th>份量</th><th style="text-align:right">热量</th><th></th></tr>
       <tbody id="listBody"></tbody>
     </table>
+    <button class="btn ghost cmp-btn" id="dayCmpBtn">对比所有用户（今日）</button>
+    <div id="dayCmp" hidden></div>
   </div>
 
   <div class="card tab-pane" id="tab-add" hidden>
@@ -126,6 +129,16 @@
     </div>
     <button class="btn" id="btnTarget">保存目标</button>
 
+    <h2 style="margin-top:20px">管理员模式</h2>
+    <p class="chart-note" id="adminStatus">未开启 · 删除用户/清空数据需要先开启</p>
+    <div class="grid g2">
+      <button class="btn ghost" id="btnAdminOn">开启管理员</button>
+      <button class="btn ghost" id="btnAdminOff">关闭管理员</button>
+    </div>
+    <div id="dangerZone" hidden>
+      <button class="btn" id="btnClear" style="margin-top:12px;background:rgba(240,113,120,.2);color:#f07178">清空当前用户记录</button>
+    </div>
+
     <h2 style="margin-top:20px">云端同步（两端互通）</h2>
     <p class="chart-note" id="syncStatus">未开启</p>
     <div class="field">
@@ -141,15 +154,15 @@
       <button class="btn ghost" id="btnSyncNow">立即同步</button>
       <button class="btn ghost" id="btnSyncOff">关闭同步</button>
     </div>
-    <p class="chart-note">开启后约 12 秒自动拉取一次；记账后自动上传。姐姐端同样填这个 Token 即可实时互通。Token 只存本机，不会发给别人。</p>
+    <p class="chart-note">开启后自动同步；记账后自动上传。两台设备填同一个 Token 即可互通。Token 只存本机。</p>
 
     <h2 style="margin-top:20px">数据</h2>
     <div class="grid g2">
       <button class="btn ghost" id="btnExport">导出 JSON</button>
       <button class="btn ghost" id="btnImport">导入 JSON</button>
     </div>
-    <button class="btn ghost" id="btnClear" style="margin-top:12px">清空当前用户记录</button>
     <p class="chart-note">食物库全局共享 · 热量/体重/转盘按用户分开</p>
+    <button class="btn ghost" id="btnBack" style="margin-top:12px">← 返回</button>
   </div>
 
   <div class="foot">数据存本机浏览器 · 日期带星期 · 份量按比例算热量</div>
@@ -212,6 +225,7 @@ function setDate(ds) {
   $('#dateInput').value = ds;
   renderHero();
   renderList();
+  if (!$('#dayCmp').hidden) renderDayCompare();
 }
 
 $('#btnPrev').onclick = () => setDate(shiftDate(curDate, -1));
@@ -352,10 +366,6 @@ $all('#tabs button').forEach(b => {
     if (b.dataset.t === 'week') renderWeek();
     if (b.dataset.t === 'month') renderMonth();
     if (b.dataset.t === 'trend') renderTrend();
-    if (b.dataset.t === 'set') {
-      $('#targetInput').value = u().target || 1000;
-      renderSyncUI();
-    }
     if (b.dataset.t === 'add') renderChips();
   };
 });
@@ -536,6 +546,7 @@ $('#btnImport').onclick = () => {
 };
 
 $('#btnClear').onclick = () => {
+  if (!isAdmin()) { toast('先开启管理员模式'); return; }
   if (!confirm('清空「' + u().name + '」全部记录？')) return;
   const st = u();
   st.entries = [];
@@ -550,6 +561,76 @@ function renderAll() {
   renderList();
   renderChips();
 }
+
+function renderDayCompare() {
+  const host = $('#dayCmp');
+  const users = loadUsers().users;
+  const rows = users.map(user => {
+    const es = (user.entries || []).filter(e => e.date === curDate);
+    const total = es.reduce((s, e) => s + (+e.kcal || 0), 0);
+    const target = user.target || 1000;
+    return { name: user.name, total: total, target: target, n: es.length };
+  }).sort((a, b) => a.total - b.total);
+  host.innerHTML = '<h2>今日全员对比</h2><table>' +
+    '<tr><th>用户</th><th>条数</th><th style="text-align:right">摄入</th><th style="text-align:right">目标</th><th style="text-align:right">差额</th></tr>' +
+    rows.map(r => {
+      const diff = r.total - r.target;
+      return '<tr class="' + (diff <= 0 ? 'ok' : 'bad') + '"><td>' + r.name + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + r.total + '</td><td class="num">' + r.target + '</td>' +
+        '<td class="num">' + (diff > 0 ? '+' : '') + diff + '</td></tr>';
+    }).join('') +
+    '</table><p class="chart-note">' + fmtDate(curDate) + ' · 绿色=达标 · 红色=超额</p>';
+}
+
+$('#dayCmpBtn').onclick = () => {
+  const el = $('#dayCmp');
+  if (!el.hidden) { el.hidden = true; return; }
+  renderDayCompare();
+  el.hidden = false;
+};
+
+function showSettings(show) {
+  $all('#tabs button').forEach(x => x.classList.remove('on'));
+  $all('.tab-pane').forEach(p => p.hidden = true);
+  if (show) {
+    $('#tab-set').hidden = false;
+    $('#targetInput').value = u().target || 1000;
+    renderSyncUI();
+    $('#adminStatus').textContent = isAdmin()
+      ? '已开启 · 可删除用户 / 清空数据'
+      : '未开启 · 删除用户/清空数据需要先开启';
+    $('#adminStatus').style.color = isAdmin() ? '#3dd68c' : '#f5a524';
+    $('#dangerZone').hidden = !isAdmin();
+    $('#btnAdminOn').hidden = isAdmin();
+    $('#btnAdminOff').hidden = !isAdmin();
+  } else {
+    // 回到明细
+    const first = document.querySelector('#tabs button[data-t="list"]');
+    if (first) first.click();
+  }
+}
+
+$('#btnSettings').onclick = () => showSettings(true);
+$('#btnBack').onclick = () => showSettings(false);
+
+$('#btnAdminOn').onclick = () => {
+  if (!confirm('开启管理员模式？开启后才能删除用户和清空数据。')) return;
+  setAdmin(true);
+  showSettings(true);
+  if (typeof renderUserBar === 'function') {
+    renderUserBar(() => { renderAll(); showSettings(true); });
+  }
+  toast('管理员模式已开启');
+};
+
+$('#btnAdminOff').onclick = () => {
+  setAdmin(false);
+  showSettings(true);
+  if (typeof renderUserBar === 'function') {
+    renderUserBar(() => { renderAll(); showSettings(true); });
+  }
+  toast('管理员模式已关闭');
+};
 
 function renderSyncUI() {
   const cfg = loadSyncCfg();
