@@ -1,9 +1,9 @@
 {
   "v": 2,
-  "updated": "2026-11-03T00:07:23.799Z",
+  "updated": "2026-11-03T01:53:19.262Z",
   "users": [
     {
-      "id": "umvyyztq2i9qz",
+      "id": "umvyz7jzb4w0i",
       "name": "我",
       "target": 1000,
       "entries": [],
@@ -17,7 +17,7 @@
       ]
     },
     {
-      "id": "umvyz2dobs99i",
+      "id": "umvz004vxcgyy",
       "name": "慧慧大人",
       "target": 1000,
       "entries": [
@@ -91,6 +91,15 @@
           "food": "豆腐丝",
           "amount": "50g",
           "kcal": 100,
+          "note": ""
+        },
+        {
+          "id": "20261103-qvw",
+          "date": "2026-11-03",
+          "meal": "早餐",
+          "food": "芥末味夏威夷果",
+          "amount": "21",
+          "kcal": 114,
           "note": ""
         }
       ],
@@ -201,15 +210,15 @@
       ],
       "weights": [
         {
-          "date": "2026-11-01",
-          "jin": 136,
-          "note": ""
-        },
-        {
           "date": "2026-11-02",
           "jin": 136,
           "kg": 68,
           "note": "初始"
+        },
+        {
+          "date": "2026-11-01",
+          "jin": 136,
+          "note": ""
         }
       ]
     }
@@ -357,6 +366,12 @@
       "name": "豆腐丝",
       "amount": "50g",
       "kcal": 100,
+      "count": 1
+    },
+    {
+      "name": "芥末味夏威夷果",
+      "amount": "21",
+      "kcal": 114,
       "count": 1
     }
   ],
