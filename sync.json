@@ -1,9 +1,9 @@
 {
   "v": 2,
-  "updated": "2026-11-03T06:51:04.185Z",
+  "updated": "2026-11-04T00:25:15.543Z",
   "users": [
     {
-      "id": "umvyz7jzb4w0i",
+      "id": "umvyyztq2i9qz",
       "name": "我",
       "target": 1000,
       "entries": [],
@@ -17,7 +17,7 @@
       ]
     },
     {
-      "id": "umvz004vxcgyy",
+      "id": "umvyz2dobs99i",
       "name": "慧慧大人",
       "target": 1000,
       "entries": [
@@ -145,6 +145,15 @@
           "food": "牛奶",
           "amount": "250ml",
           "kcal": 135,
+          "note": ""
+        },
+        {
+          "id": "20261104-uf8",
+          "date": "2026-11-04",
+          "meal": "早餐",
+          "food": "金枪鱼玉米三明治",
+          "amount": "半个",
+          "kcal": 355,
           "note": ""
         }
       ],
@@ -300,15 +309,15 @@
       ],
       "weights": [
         {
+          "date": "2026-11-01",
+          "jin": 136,
+          "note": ""
+        },
+        {
           "date": "2026-11-02",
           "jin": 136,
           "kg": 68,
           "note": "初始"
-        },
-        {
-          "date": "2026-11-01",
-          "jin": 136,
-          "note": ""
         }
       ]
     }
@@ -522,6 +531,12 @@
       "name": "牛奶",
       "amount": "250ml",
       "kcal": 135,
+      "count": 1
+    },
+    {
+      "name": "金枪鱼玉米三明治",
+      "amount": "半个",
+      "kcal": 355,
       "count": 1
     }
   ],
