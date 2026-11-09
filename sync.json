@@ -1,9 +1,9 @@
 {
   "v": 2,
-  "updated": "2026-11-09T07:22:50.001Z",
+  "updated": "2026-11-09T23:34:16.968Z",
   "users": [
     {
-      "id": "umvyz7jzb4w0i",
+      "id": "umvyyztq2i9qz",
       "name": "我",
       "target": 1000,
       "entries": [],
@@ -17,7 +17,7 @@
       ]
     },
     {
-      "id": "umvz004vxcgyy",
+      "id": "umvyz2dobs99i",
       "name": "慧慧大人",
       "target": 1000,
       "entries": [
@@ -244,6 +244,15 @@
           "food": "脆皮酸奶巧克力",
           "amount": "半杯",
           "kcal": 150,
+          "note": ""
+        },
+        {
+          "id": "20261109-8cb",
+          "date": "2026-11-09",
+          "meal": "早餐",
+          "food": "酸奶",
+          "amount": "200",
+          "kcal": 83,
           "note": ""
         }
       ],
@@ -678,15 +687,15 @@
       ],
       "weights": [
         {
+          "date": "2026-11-01",
+          "jin": 136,
+          "note": ""
+        },
+        {
           "date": "2026-11-02",
           "jin": 136,
           "kg": 68,
           "note": "初始"
-        },
-        {
-          "date": "2026-11-01",
-          "jin": 136,
-          "note": ""
         }
       ]
     }
@@ -1110,6 +1119,12 @@
       "name": "脆皮酸奶巧克力",
       "amount": "半杯",
       "kcal": 150,
+      "count": 1
+    },
+    {
+      "name": "酸奶",
+      "amount": "200",
+      "kcal": 83,
       "count": 1
     }
   ],
