@@ -1,6 +1,6 @@
 {
   "v": 2,
-  "updated": "2026-11-09T06:48:12.773Z",
+  "updated": "2026-11-09T06:48:44.445Z",
   "users": [
     {
       "id": "umvyyyvui193q",
@@ -384,6 +384,15 @@
           "amount": "1",
           "kcal": 158,
           "note": ""
+        },
+        {
+          "id": "20261108-mzp",
+          "date": "2026-11-08",
+          "meal": "晚餐",
+          "food": "米饭",
+          "amount": "200g",
+          "kcal": 232,
+          "note": ""
         }
       ],
       "weights": [
@@ -696,15 +705,15 @@
       "count": 6
     },
     {
-      "name": "地三鲜",
-      "amount": "1",
-      "kcal": 400,
-      "count": 3
-    },
-    {
       "name": "米饭",
       "amount": "200g",
       "kcal": 232,
+      "count": 4
+    },
+    {
+      "name": "地三鲜",
+      "amount": "1",
+      "kcal": 400,
       "count": 3
     },
     {
