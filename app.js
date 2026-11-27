@@ -706,7 +706,8 @@ async function ghApi(path, opts) {
   return fetch('https://api.github.com' + path, {
     method: opts.method || 'GET',
     headers: headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    cache: 'no-store' // 必须绕开 HTTP 缓存：GET sha 若命中缓存会一直 409
   });
 }
 
@@ -774,23 +775,28 @@ async function syncPush(showToast) {
   try {
     const doc = collectCloudDoc();
     const content = b64utf8(JSON.stringify(doc, null, 2));
-    let sha = undefined;
-    const get = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
-    if (get.ok) {
-      const meta = await get.json();
-      sha = meta.sha;
-    } else if (get.status !== 404) {
-      const t = await get.text();
-      throw new Error('push ' + get.status + ' ' + t.slice(0, 100));
-    }
-    const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path, {
-      method: 'PUT',
-      body: {
-        message: 'sync calorie data ' + new Date().toISOString(),
-        content: content,
-        sha: sha
+    // PUT 必须带当前 sha；两台设备同时上传会撞车（409），自动取新 sha 重试
+    let res = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let sha = undefined;
+      const get = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+      if (get.ok) {
+        const meta = await get.json();
+        sha = meta.sha;
+      } else if (get.status !== 404) {
+        const t = await get.text();
+        throw new Error('push ' + get.status + ' ' + t.slice(0, 100));
       }
-    });
+      res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path, {
+        method: 'PUT',
+        body: {
+          message: 'sync calorie data ' + new Date().toISOString(),
+          content: content,
+          sha: sha
+        }
+      });
+      if (res.ok || res.status !== 409) break;
+    }
     if (!res.ok) {
       const t = await res.text();
       throw new Error('push ' + res.status + ' ' + t.slice(0, 100));

@@ -1,5 +1,5 @@
 /* 卡路里 PWA Service Worker */
-const CACHE = 'calorie-v3';
+const CACHE = 'calorie-v4';
 const ASSETS = [
   './',
   'index.html',
