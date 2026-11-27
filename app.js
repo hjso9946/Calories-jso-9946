@@ -1,0 +1,1184 @@
+/* shared helpers — multi-user + proportional kcal */
+const WD = ['周日','周一','周二','周三','周四','周五','周六'];
+const LS_USERS = 'calorie_users_v2';
+const LS_FOOD = 'calorie_fooddb_v1';
+const LS_OLD = 'calorie_app_v1';
+const LS_SYNC = 'calorie_sync_v1';
+const LS_ADMIN = 'calorie_admin_v1';
+const LS_ACTIVE = 'calorie_active_user_v1';
+const LS_SPINS = 'calorie_spins_v1'; // 本机多转盘，不同步
+const LS_DEL = 'calorie_deletes_v1'; // 删除标记（墓碑），防止同步把删掉的并回来
+const SYNC_DEFAULT = {
+  owner: 'hjso9946',
+  repo: 'Calories-data', // 私有数据仓库（2026-11-27 起）：身体数据不再放公开仓库
+  path: 'sync.json',
+  token: '',
+  enabled: false
+};
+
+function isAdmin() {
+  try { return localStorage.getItem(LS_ADMIN) === '1'; } catch (e) { return false; }
+}
+function setAdmin(on) {
+  try {
+    if (on) localStorage.setItem(LS_ADMIN, '1');
+    else localStorage.removeItem(LS_ADMIN);
+  } catch (e) {}
+}
+
+function $(s, el) { return (el || document).querySelector(s); }
+function $all(s, el) { return Array.from((el || document).querySelectorAll(s)); }
+
+function toast(m) {
+  let t = $('#toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    t.className = 'toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = m;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function weekdayOf(ds) {
+  try { return WD[new Date(ds + 'T12:00:00').getDay()]; } catch (e) { return ''; }
+}
+function fmtDate(ds) { return (ds || '') + ' ' + weekdayOf(ds); }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function shiftDate(ds, n) {
+  const d = new Date(ds + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function mondayOf(ds) {
+  const d = new Date(ds + 'T12:00:00');
+  const w = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - w);
+  return d.toISOString().slice(0, 10);
+}
+function statusLevel(diff) { return diff <= 0 ? 'ok' : (diff <= 100 ? 'warn' : 'bad'); }
+function statusMark(diff) { return diff <= 0 ? '✅' : (diff <= 100 ? '⚠️' : '🔴'); }
+
+function renderNav(active) {
+  const host = $('#navHost');
+  if (!host) return;
+  host.innerHTML = '';
+  const nav = document.createElement('div');
+  nav.className = 'nav';
+  [['index.html', '卡路里'], ['weight.html', '体重'], ['spin.html', '转盘']].forEach(([href, label]) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = label;
+    if (href === active) a.className = 'on';
+    nav.appendChild(a);
+  });
+  host.appendChild(nav);
+}
+
+/* ---------- multi-user store ---------- */
+function defaultUser(name) {
+  return {
+    id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name: name || '我',
+    target: 1000,
+    entries: [],
+    weights: []
+  };
+}
+
+function getActiveId() {
+  try { return localStorage.getItem(LS_ACTIVE) || ''; } catch (e) { return ''; }
+}
+function setActiveId(id) {
+  try { localStorage.setItem(LS_ACTIVE, id || ''); } catch (e) {}
+}
+
+function normalizeUser(u) {
+  if (!u) return null;
+  if (!Array.isArray(u.entries)) u.entries = [];
+  if (!Array.isArray(u.weights)) u.weights = [];
+  // 转盘迁到本机多转盘，不再跟用户/云端走
+  if (Array.isArray(u.spin) && u.spin.length) {
+    try {
+      const wrap = JSON.parse(localStorage.getItem(LS_SPINS) || 'null');
+      if (!wrap || !Array.isArray(wrap.boards) || !wrap.boards.length) {
+        const seed = {
+          activeId: 's_default',
+          boards: [{ id: 's_default', name: '今天吃什么', opts: u.spin.slice() }]
+        };
+        localStorage.setItem(LS_SPINS, JSON.stringify(seed));
+      }
+    } catch (e) {}
+  }
+  delete u.spin;
+  if (!u.target) u.target = 1000;
+  if (!u.name) u.name = '用户';
+  return u;
+}
+
+function dedupeUsers(list) {
+  const byName = {};
+  const out = [];
+  (list || []).forEach(u => {
+    normalizeUser(u);
+    if (!u) return;
+    const key = String(u.name).trim();
+    if (!byName[key]) {
+      byName[key] = u;
+      out.push(u);
+      return;
+    }
+    // 同名合并（避免每端各建一个「我」）
+    const t = byName[key];
+    (u.entries || []).forEach(e => {
+      if (!e || !e.id) return;
+      const i = t.entries.findIndex(x => x.id === e.id);
+      if (i >= 0) t.entries[i] = e;
+      else t.entries.push(e);
+    });
+    (u.weights || []).forEach(w => {
+      if (!w || !w.date) return;
+      const i = t.weights.findIndex(x => x.date === w.date);
+      if (i >= 0) t.weights[i] = w;
+      else t.weights.push(w);
+    });
+    if (u.target) t.target = u.target;
+  });
+  return out;
+}
+
+function loadUsers() {
+  let wrap = null;
+  try {
+    wrap = JSON.parse(localStorage.getItem(LS_USERS) || 'null');
+  } catch (e) {
+    wrap = null;
+  }
+
+  if (wrap && Array.isArray(wrap.users) && wrap.users.length) {
+    wrap.users = purgeDeleted(dedupeUsers(wrap.users));
+    const lastId = getActiveId();
+    const has = (id) => wrap.users.some(x => x.id === id);
+    if (lastId && has(lastId)) wrap.activeId = lastId;
+    else if (!wrap.activeId || !has(wrap.activeId)) wrap.activeId = wrap.users[0].id;
+    setActiveId(wrap.activeId);
+    return wrap;
+  }
+
+  // 仅当真正没有任何用户时才建默认「我」（只建一次）
+  try {
+    const old = JSON.parse(localStorage.getItem(LS_OLD) || 'null');
+    if (old && (old.entries || old.weights)) {
+      const u = defaultUser('我');
+      u.target = old.target || 1000;
+      u.entries = old.entries || [];
+      u.weights = old.weights || [];
+      if (old.foods && old.foods.length && !loadFooddb().length) saveFooddb(old.foods);
+      wrap = { activeId: u.id, users: [u] };
+      localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+      setActiveId(u.id);
+      return wrap;
+    }
+  } catch (e) {}
+
+  // 只创建一次默认用户，id 稳定，之后不再新增
+  const u = defaultUser('我');
+  u.id = 'u_default';
+  wrap = { activeId: u.id, users: [u] };
+  localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+  setActiveId(u.id);
+  return wrap;
+}
+
+function saveUsers(wrap) {
+  if (wrap && wrap.activeId) setActiveId(wrap.activeId);
+  localStorage.setItem(LS_USERS, JSON.stringify(wrap));
+  if (typeof schedulePush === 'function') schedulePush();
+}
+
+/* ---- 删除标记（墓碑）：删掉的记录同步时不再被合并回来 ---- */
+function loadDeletes() {
+  try { return JSON.parse(localStorage.getItem(LS_DEL) || '{}') || {}; } catch (e) { return {}; }
+}
+function saveDeletes(d) {
+  try { localStorage.setItem(LS_DEL, JSON.stringify(d || {})); } catch (e) {}
+  if (typeof schedulePush === 'function') schedulePush();
+}
+function markDeleted(key) {
+  if (!key) return;
+  const d = loadDeletes();
+  d[key] = new Date().toISOString();
+  saveDeletes(d);
+}
+function markDeletedMany(keys) {
+  const d = loadDeletes();
+  const now = new Date().toISOString();
+  (keys || []).forEach(k => { if (k) d[k] = now; });
+  saveDeletes(d);
+}
+function clearDeleted(key) {
+  if (!key) return;
+  const d = loadDeletes();
+  if (d[key]) { delete d[key]; saveDeletes(d); }
+}
+function isDeleted(key) {
+  return !!loadDeletes()[key];
+}
+function mergeDeletes(localD, remoteD) {
+  const out = Object.assign({}, localD || {});
+  Object.keys(remoteD || {}).forEach(k => {
+    const a = out[k] || '';
+    const b = remoteD[k] || '';
+    if (!a || b > a) out[k] = b;
+  });
+  // 只保留 30 天内的墓碑，避免无限膨胀
+  const cutoff = Date.now() - 30 * 86400000;
+  Object.keys(out).forEach(k => {
+    const t = Date.parse(out[k] || '') || 0;
+    if (t && t < cutoff) delete out[k];
+  });
+  return out;
+}
+function entryDelKey(id) { return 'e:' + id; }
+function weightDelKey(uid, date) { return 'w:' + uid + ':' + date; }
+function userDelKey(id) { return 'u:' + id; }
+
+/* 强制清掉已标记删除的条目，保证界面和云端都留不下 */
+function purgeDeleted(users) {
+  const del = loadDeletes();
+  (users || []).forEach(u => {
+    if (!u) return;
+    u.entries = (u.entries || []).filter(e => e && e.id && !del[entryDelKey(e.id)]);
+    u.weights = (u.weights || []).filter(w => {
+      if (!w || !w.date) return false;
+      return !del[weightDelKey(u.id, w.date)] && !del[weightDelKey(u.name, w.date)];
+    });
+  });
+  return users;
+}
+
+function activeUser() {
+  const w = loadUsers();
+  const lastId = getActiveId();
+  let u = w.users.find(x => x.id === lastId) || w.users.find(x => x.id === w.activeId) || w.users[0];
+  w.activeId = u.id;
+  setActiveId(u.id);
+  return u;
+}
+
+function setActiveUser(id) {
+  const w = loadUsers();
+  if (w.users.some(x => x.id === id)) {
+    w.activeId = id;
+    setActiveId(id);
+    saveUsers(w);
+  }
+}
+
+function createUser(name) {
+  const w = loadUsers();
+  const nm = String(name || '').trim() || ('用户' + (w.users.length + 1));
+  if (w.users.some(x => x.name === nm)) {
+    const ex = w.users.find(x => x.name === nm);
+    w.activeId = ex.id;
+    setActiveId(ex.id);
+    saveUsers(w);
+    return ex;
+  }
+  const u = defaultUser(nm);
+  w.users.push(u);
+  w.activeId = u.id;
+  setActiveId(u.id);
+  saveUsers(w);
+  return u;
+}
+
+function renameUser(id, name) {
+  const w = loadUsers();
+  const u = w.users.find(x => x.id === id);
+  if (u) {
+    u.name = String(name || '').trim() || u.name;
+    saveUsers(w);
+  }
+}
+
+function deleteUser(id) {
+  const w = loadUsers();
+  if (w.users.length <= 1) return false;
+  const u = w.users.find(x => x.id === id);
+  if (u) {
+    const keys = [userDelKey(id)];
+    (u.entries || []).forEach(e => { if (e && e.id) keys.push(entryDelKey(e.id)); });
+    (u.weights || []).forEach(x => { if (x && x.date) keys.push(weightDelKey(id, x.date)); });
+    markDeletedMany(keys);
+  }
+  w.users = w.users.filter(x => x.id !== id);
+  if (w.activeId === id || getActiveId() === id) {
+    w.activeId = w.users[0].id;
+    setActiveId(w.activeId);
+  }
+  saveUsers(w);
+  return true;
+}
+
+function saveActiveUser(u) {
+  const w = loadUsers();
+  const i = w.users.findIndex(x => x.id === u.id);
+  if (i >= 0) w.users[i] = u;
+  else {
+    // 同名则合并，避免多出一份「我」
+    const j = w.users.findIndex(x => x.name === u.name);
+    if (j >= 0) w.users[j] = u;
+    else w.users.push(u);
+  }
+  w.activeId = u.id;
+  setActiveId(u.id);
+  saveUsers(w);
+}
+
+function renderUserBar(onSwitch) {
+  const host = $('#userBar');
+  if (!host) return;
+  const w = loadUsers();
+  const cur = activeUser();
+  host.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'userbar';
+
+  const sel = document.createElement('select');
+  sel.id = 'userSel';
+  sel.className = 'user-sel';
+  w.users.forEach(u => {
+    const o = document.createElement('option');
+    o.value = u.id;
+    const n = (u.entries || []).length;
+    o.textContent = u.name + (n ? ' · ' + n + '条' : '');
+    if (u.id === cur.id) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    setActiveUser(sel.value);
+    toast('已切换到 ' + activeUser().name);
+    if (onSwitch) onSwitch();
+  };
+
+  const edit = document.createElement('button');
+  edit.className = 'user-btn';
+  edit.textContent = '改名';
+  edit.onclick = () => {
+    const name = prompt('昵称', activeUser().name);
+    if (name && name.trim()) {
+      renameUser(activeUser().id, name.trim());
+      renderUserBar(onSwitch);
+      if (onSwitch) onSwitch();
+      toast('已改名');
+    }
+  };
+
+  const add = document.createElement('button');
+  add.className = 'user-btn';
+  add.textContent = '+用户';
+  add.onclick = () => {
+    const name = prompt('新用户昵称', '');
+    if (name && name.trim()) {
+      createUser(name.trim());
+      renderUserBar(onSwitch);
+      if (onSwitch) onSwitch();
+      toast('已创建 ' + name.trim());
+    }
+  };
+
+  const del = document.createElement('button');
+  del.className = 'user-btn danger';
+  del.textContent = '删';
+  del.hidden = !isAdmin();
+  del.onclick = () => {
+    if (!isAdmin()) { toast('先在设置里开启管理员模式'); return; }
+    if (loadUsers().users.length <= 1) { toast('至少留 1 个用户'); return; }
+    if (!confirm('删除用户「' + activeUser().name + '」及其全部记录？')) return;
+    deleteUser(activeUser().id);
+    renderUserBar(onSwitch);
+    if (onSwitch) onSwitch();
+    toast('已删除');
+  };
+
+  const label = document.createElement('span');
+  label.className = 'user-label';
+  label.textContent = '当前：' + cur.name;
+
+  const syncLine = document.createElement('div');
+  syncLine.id = 'syncLine';
+  syncLine.className = 'chart-note';
+  syncLine.style.width = '100%';
+  const paintSync = () => {
+    const cfg = loadSyncCfg();
+    const state = getSyncState();
+    if (!cfg.enabled) {
+      syncLine.textContent = '☁ 未开启云同步 · 设置里可开启';
+      syncLine.style.color = '#8b9bb0';
+    } else if (state && state.state === 'ok') {
+      syncLine.textContent = '☁ 已同步 · ' + (state.msg || '');
+      syncLine.style.color = '#3dd68c';
+    } else if (state && state.state === 'err') {
+      syncLine.textContent = '☁ 同步失败 · ' + (state.msg || '');
+      syncLine.style.color = '#f07178';
+    } else {
+      syncLine.textContent = '☁ 同步中…';
+      syncLine.style.color = '#f5a524';
+    }
+  };
+  paintSync();
+  window.addEventListener('calorie-sync-state', paintSync);
+
+  box.appendChild(label);
+  box.appendChild(sel);
+  box.appendChild(edit);
+  box.appendChild(add);
+  box.appendChild(del);
+  box.appendChild(syncLine);
+  host.appendChild(box);
+}
+
+/* ---------- fooddb (shared) ---------- */
+function loadFooddb() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LS_FOOD) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function saveFooddb(list) {
+  localStorage.setItem(LS_FOOD, JSON.stringify(list));
+  if (typeof schedulePush === 'function') schedulePush();
+}
+
+function upsertFood(food, amount, kcal) {
+  const name = String(food || '').trim();
+  if (!name) return;
+  const list = loadFooddb();
+  const i = list.findIndex(x => x.name === name && (x.amount || '') === (amount || ''));
+  if (i >= 0) {
+    list[i].kcal = +kcal || list[i].kcal;
+    list[i].count = (list[i].count || 1) + 1;
+  } else {
+    list.push({ name: name, amount: amount || '', kcal: +kcal || 0, count: 1 });
+  }
+  list.sort((a, b) => (b.count || 0) - (a.count || 0));
+  saveFooddb(list);
+}
+
+function searchFood(q) {
+  const key = String(q || '').trim().toLowerCase();
+  const list = loadFooddb();
+  if (!key) return list.slice(0, 12);
+  return list.filter(x =>
+    x.name.toLowerCase().indexOf(key) >= 0 ||
+    (x.amount || '').toLowerCase().indexOf(key) >= 0
+  ).slice(0, 12);
+}
+
+/* ---------- proportional kcal ---------- */
+function parseAmount(s) {
+  const str = String(s || '').trim();
+  if (!str) return { n: 1, unit: '' };
+  const m = str.match(/^([0-9]+(?:\.[0-9]+)?)\s*(g|克|kg|ml|毫升|l|个|颗|片|份|杯|碗|包|盒|块|根|只|勺|大勺|小勺)?$/i);
+  if (m) {
+    let n = parseFloat(m[1]);
+    let unit = (m[2] || '').toLowerCase();
+    if (unit === '克') unit = 'g';
+    if (unit === 'kg') { n = n * 1000; unit = 'g'; }
+    if (unit === '毫升') unit = 'ml';
+    if (unit === 'l') { n = n * 1000; unit = 'ml'; }
+    return { n: n, unit: unit };
+  }
+  return { n: 1, unit: str };
+}
+
+function scaleKcal(baseAmount, baseKcal, userAmount) {
+  const b = parseAmount(baseAmount);
+  const u = parseAmount(userAmount);
+  if (!b.n || !baseKcal) return null;
+  // same unit family
+  const bU = b.unit, uU = u.unit;
+  const same = (bU === uU) ||
+    ((bU === 'g' || bU === 'ml') && (uU === 'g' || uU === 'ml')) ||
+    (!bU && !uU);
+  if (!same && bU && uU) return null;
+  const ratio = u.n / b.n;
+  if (!isFinite(ratio) || ratio <= 0) return null;
+  return Math.round(baseKcal * ratio);
+}
+
+function autoKcalFor(foodName, amount) {
+  const list = loadFooddb();
+  const exact = list.find(x => x.name === foodName && (x.amount || '') === (amount || ''));
+  if (exact) return exact.kcal;
+  const byName = list.find(x => x.name === foodName);
+  if (!byName) return null;
+  return scaleKcal(byName.amount, byName.kcal, amount);
+}
+
+/* ---------- cloud sync (GitHub repo sync.json) ---------- */
+function loadSyncCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_SYNC) || 'null');
+    const cfg = Object.assign({}, SYNC_DEFAULT, c || {});
+    // 数据仓库已私有化（2026-11-27）：旧配置指向公开仓库的自动迁移，
+    // 防止新代码把身体数据推回公开仓库
+    if (cfg.owner === 'hjso9946' && cfg.repo === 'Calories-jso-9946') {
+      cfg.repo = 'Calories-data';
+      try { localStorage.setItem(LS_SYNC, JSON.stringify(cfg)); } catch (e2) {}
+    }
+    return cfg;
+  } catch (e) {
+    return Object.assign({}, SYNC_DEFAULT);
+  }
+}
+function saveSyncCfg(cfg) {
+  localStorage.setItem(LS_SYNC, JSON.stringify(cfg));
+}
+
+function b64utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+function unb64utf8(b64) {
+  const bin = atob(b64.replace(/\n/g, ''));
+  const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function collectCloudDoc() {
+  return {
+    v: 2,
+    updated: new Date().toISOString(),
+    users: loadUsers().users.map(u => {
+      return { id: u.id, name: u.name, target: u.target, entries: u.entries || [], weights: u.weights || [] };
+    }),
+    foods: loadFooddb(),
+    deletes: loadDeletes()
+  };
+}
+
+/* 合并规则：先按 id，同名不同 id 也并成一个（家庭多端常见）；跳过已删除 */
+function mergeUsers(localUsers, remoteUsers) {
+  const del = loadDeletes();
+  const list = [];
+  const byKey = {};
+  const keyOf = (u) => {
+    if (!u) return null;
+    let name = String(u.name || '').trim();
+    // 乱码/空名视为同一个「未命名」，避免多端各冒一个
+    if (!name || /[\uD800-\uDFFF]/.test(name)) name = '未命名';
+    return name;
+  };
+  const push = (u) => {
+    if (!u) return;
+    if (u.id && del[userDelKey(u.id)]) return;
+    const key = keyOf(u);
+    if (!key) return;
+    if (!byKey[key]) {
+      byKey[key] = {
+        id: u.id || key,
+        name: u.name || key,
+        target: u.target || 1000,
+        entries: [],
+        weights: []
+      };
+      list.push(byKey[key]);
+    }
+    const t = byKey[key];
+    if (u.name) t.name = u.name;
+    if (u.target) t.target = u.target;
+    (u.entries || []).forEach(e => {
+      if (!e || !e.id) return;
+      if (del[entryDelKey(e.id)]) return;
+      const i = t.entries.findIndex(x => x.id === e.id);
+      if (i >= 0) t.entries[i] = e;
+      else t.entries.push(e);
+    });
+    (u.weights || []).forEach(w => {
+      if (!w || !w.date) return;
+      const uid = u.id || key;
+      if (del[weightDelKey(uid, w.date)] || del[weightDelKey(key, w.date)]) return;
+      const i = t.weights.findIndex(x => x.date === w.date);
+      if (i >= 0) t.weights[i] = w;
+      else t.weights.push(w);
+    });
+  };
+  (localUsers || []).forEach(push);
+  (remoteUsers || []).forEach(push);
+  return list;
+}
+
+function mergeFoods(localFoods, remoteFoods) {
+  const map = {};
+  const put = (f) => {
+    if (!f || !f.name) return;
+    const key = f.name + '|' + (f.amount || '');
+    if (!map[key]) {
+      map[key] = { name: f.name, amount: f.amount || '', kcal: +f.kcal || 0, count: +f.count || 1 };
+    } else {
+      map[key].kcal = +f.kcal || map[key].kcal;
+      map[key].count = Math.max(map[key].count || 1, +f.count || 1);
+    }
+  };
+  (localFoods || []).forEach(put);
+  (remoteFoods || []).forEach(put);
+  return Object.keys(map).map(k => map[k]).sort((a, b) => (b.count || 0) - (a.count || 0));
+}
+
+function applyCloudDoc(doc) {
+  if (!doc) return false;
+  // 先合并删除标记，再合并数据
+  const mergedDel = mergeDeletes(loadDeletes(), doc.deletes || {});
+  localStorage.setItem(LS_DEL, JSON.stringify(mergedDel));
+  const wrap = loadUsers();
+  let localUsers = wrap.users;
+  // 新设备只有一个空的默认「我」时，直接用云端用户，不再多出一个
+  // （无记录、名字是「我」/u_default 的都算默认垃圾用户；有的只是种子体重，一并丢掉）
+  const cloudHasData = (doc.users || []).some(u => (u.entries && u.entries.length) || (u.weights && u.weights.length));
+  if (cloudHasData && localUsers.length === 1) {
+    const only = localUsers[0];
+    const isDefault = (only.name === '我' || only.id === 'u_default' || !only.name);
+    const noEntries = (!only.entries || !only.entries.length);
+    if (isDefault && noEntries) localUsers = [];
+  }
+  const merged = purgeDeleted(dedupeUsers(mergeUsers(localUsers, doc.users || [])));
+  if (!merged.length) return false;
+  const lastId = getActiveId();
+  const has = (id) => merged.some(u => u.id === id);
+  const activeId = (lastId && has(lastId)) ? lastId
+    : (has(wrap.activeId) ? wrap.activeId : merged[0].id);
+  const next = { activeId: activeId, users: merged };
+  localStorage.setItem(LS_USERS, JSON.stringify(next));
+  setActiveId(activeId);
+  const foods = mergeFoods(loadFooddb(), doc.foods || []);
+  localStorage.setItem(LS_FOOD, JSON.stringify(foods));
+  return true;
+}
+
+/* 只合并与当前用户【同名】的重复账号（不同名的账号一律保留） */
+function mergeAllUsersIntoActive() {
+  const w = loadUsers();
+  if (w.users.length <= 1) return false;
+  const target = w.users.find(x => x.id === getActiveId()) || w.users[0];
+  const keep = [];
+  w.users.forEach(x => {
+    if (x.id === target.id || (x.name || '').trim() === (target.name || '').trim()) {
+      (x.entries || []).forEach(e => {
+        if (!e || !e.id) return;
+        const i = target.entries.findIndex(y => y.id === e.id);
+        if (i >= 0) target.entries[i] = e;
+        else target.entries.push(e);
+      });
+      (x.weights || []).forEach(v => {
+        if (!v || !v.date) return;
+        const i = target.weights.findIndex(y => y.date === v.date);
+        if (i >= 0) target.weights[i] = v;
+        else target.weights.push(v);
+      });
+    } else {
+      keep.push(x);  // 不同名的用户原样保留
+    }
+  });
+  target.entries = target.entries || [];
+  target.weights = target.weights || [];
+  w.users = [target].concat(keep);
+  w.activeId = target.id;
+  saveUsers(w);
+  return true;
+}
+
+async function ghApi(path, opts) {
+  opts = opts || {};
+  const cfg = loadSyncCfg();
+  const headers = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28'
+  };
+  if (cfg.token) headers['Authorization'] = 'Bearer ' + cfg.token;
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  return fetch('https://api.github.com' + path, {
+    method: opts.method || 'GET',
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+}
+
+function setSyncState(state, msg) {
+  localStorage.setItem('calorie_sync_state', JSON.stringify({
+    state: state,
+    msg: msg || '',
+    at: Date.now()
+  }));
+  window.dispatchEvent(new CustomEvent('calorie-sync-state', { detail: { state, msg } }));
+}
+function getSyncState() {
+  try { return JSON.parse(localStorage.getItem('calorie_sync_state') || 'null'); } catch (e) { return null; }
+}
+
+async function syncPull(showToast) {
+  const cfg = loadSyncCfg();
+  const rawUrl = 'https://raw.githubusercontent.com/' + cfg.owner + '/' + cfg.repo + '/main/' + cfg.path;
+  // 优先 raw（不限流、免 Token 可读）；私有仓库 raw 一律 404，须退到 API 用 Token 读
+  try {
+    let doc = null;
+    try {
+      const res = await fetch(rawUrl + '?t=' + Date.now(), { cache: 'no-store' });
+      if (res.ok) {
+        doc = await res.json();
+      } else if (res.status !== 404) {
+        throw new Error('pull ' + res.status);
+      }
+    } catch (e) { /* raw 不可用（网络失败/私有仓库 404）：退到 API */ }
+    if (doc === null) {
+      const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+      if (res.status === 404) doc = null;
+      else if (!res.ok) {
+        const t = await res.text();
+        throw new Error('pull ' + res.status + ' ' + t.slice(0, 100));
+      } else {
+        const meta = await res.json();
+        doc = JSON.parse(unb64utf8(meta.content));
+      }
+    }
+    if (!doc) {
+      if (showToast) toast('云端还没有数据，点「立即同步」上传');
+      setSyncState('empty', '云端暂无数据');
+      return false;
+    }
+    applyCloudDoc(doc);
+    setSyncState('ok', '已同步 ' + new Date().toLocaleTimeString());
+    if (showToast) toast('已拉取云端数据');
+    window.dispatchEvent(new CustomEvent('calorie-sync'));
+    return true;
+  } catch (e) {
+    setSyncState('err', String(e.message || e).slice(0, 80));
+    if (showToast) toast('同步失败：' + (e.message || e));
+    return false;
+  }
+}
+
+async function syncPush(showToast) {
+  const cfg = loadSyncCfg();
+  if (!cfg.token) {
+    setSyncState('need', '缺 Token，无法上传');
+    if (showToast) toast('请先填 GitHub Token');
+    return false;
+  }
+  try {
+    const doc = collectCloudDoc();
+    const content = b64utf8(JSON.stringify(doc, null, 2));
+    let sha = undefined;
+    const get = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path);
+    if (get.ok) {
+      const meta = await get.json();
+      sha = meta.sha;
+    } else if (get.status !== 404) {
+      const t = await get.text();
+      throw new Error('push ' + get.status + ' ' + t.slice(0, 100));
+    }
+    const res = await ghApi('/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + cfg.path, {
+      method: 'PUT',
+      body: {
+        message: 'sync calorie data ' + new Date().toISOString(),
+        content: content,
+        sha: sha
+      }
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error('push ' + res.status + ' ' + t.slice(0, 100));
+    }
+    setSyncState('ok', '已上传 ' + new Date().toLocaleTimeString());
+    if (showToast) toast('已上传云端');
+    return true;
+  } catch (e) {
+    const m = String(e.message || e);
+    setSyncState('err', m.slice(0, 80));
+    if (showToast) toast('上传失败：' + m);
+    return false;
+  }
+}
+
+async function syncNow(showToast) {
+  await syncPull(false);
+  await syncPush(showToast);
+}
+
+let _syncTimer = null;
+function startSyncLoop() {
+  stopSyncLoop();
+  const cfg = loadSyncCfg();
+  // 拉取：公开仓库免 Token（raw 可读）；私有仓库需 Token（API 读）
+  syncPull(false);
+  if (!cfg.enabled) return;
+  _syncTimer = setInterval(() => { syncPull(false); }, 20000);
+}
+function stopSyncLoop() {
+  if (_syncTimer) {
+    clearInterval(_syncTimer);
+    _syncTimer = null;
+  }
+}
+
+let _pushDebounce = null;
+function schedulePush() {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled || !cfg.token) return;
+  clearTimeout(_pushDebounce);
+  _pushDebounce = setTimeout(() => { syncPush(false); }, 1500);
+}
+
+function syncBadge() {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled) return 'off';
+  return cfg.token ? 'on' : 'need';
+}
+
+/* ---------- charts ---------- */
+function drawLine(canvas, series, opts) {
+  opts = opts || {};
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 640;
+  const cssH = opts.height || 240;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const data = series || [];
+  if (!data.length) {
+    ctx.fillStyle = '#8b9bb0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(opts.empty || '暂无数据', cssW / 2, cssH / 2);
+    return;
+  }
+  const vals = data.map(x => +x.v).filter(v => !isNaN(v));
+  if (!vals.length) {
+    ctx.fillStyle = '#8b9bb0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(opts.empty || '暂无数据', cssW / 2, cssH / 2);
+    return;
+  }
+  let minV = Math.min.apply(null, vals);
+  let maxV = Math.max.apply(null, vals);
+  if (opts.yMin != null) minV = Math.min(minV, opts.yMin);
+  if (opts.yMax != null) maxV = Math.max(maxV, opts.yMax);
+  const pad = Math.max(1, (maxV - minV) * 0.2) || 1;
+  minV -= pad; maxV += pad;
+  const padL = 40, padR = 12, padT = 14, padB = 30;
+  const W = cssW - padL - padR, H = cssH - padT - padB;
+
+  ctx.strokeStyle = '#2a3542';
+  ctx.fillStyle = '#8b9bb0';
+  ctx.font = '10px sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + H * (i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + W, y); ctx.stroke();
+    const v = maxV - (maxV - minV) * (i / 4);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.round(v * 10) / 10), padL - 6, y);
+  }
+  if (opts.target != null) {
+    const ty = padT + H - ((opts.target - minV) / (maxV - minV)) * H;
+    if (ty >= padT && ty <= padT + H) {
+      ctx.strokeStyle = '#8b9bb0';
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(padL, ty); ctx.lineTo(padL + W, ty); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  const pt = (i) => {
+    const x = data.length === 1 ? padL + W / 2 : padL + (W * i / (data.length - 1));
+    const y = padT + H - (((+data[i].v || 0) - minV) / (maxV - minV)) * H;
+    return [x, y];
+  };
+  if (data.length > 1) {
+    ctx.strokeStyle = opts.color || '#5b9dff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    data.forEach((_, i) => {
+      const p = pt(i);
+      if (i === 0) ctx.moveTo(p[0], p[1]);
+      else ctx.lineTo(p[0], p[1]);
+    });
+    ctx.stroke();
+  }
+  data.forEach((d, i) => {
+    const p = pt(i);
+    ctx.fillStyle = opts.color || '#5b9dff';
+    ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, Math.PI * 2); ctx.fill();
+    const every = Math.max(1, Math.ceil(data.length / 7));
+    if (i % every === 0 || i === data.length - 1) {
+      ctx.fillStyle = '#8b9bb0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(d.label || '', p[0], cssH - 10);
+    }
+  });
+}
+
+function drawBars(canvas, series, opts) {
+  opts = opts || {};
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 640;
+  const cssH = opts.height || 240;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const data = series || [];
+  if (!data.length) return;
+  const target = opts.target || 1000;
+  const maxV = Math.max(target, ...data.map(x => x.v || 0), 100) * 1.15;
+  const padL = 36, padR = 8, padT = 12, padB = 28;
+  const W = cssW - padL - padR, H = cssH - padT - padB;
+  const n = data.length;
+  const gap = 3;
+  const bw = Math.max(4, (W - gap * (n - 1)) / n);
+
+  ctx.strokeStyle = '#2a3542';
+  ctx.fillStyle = '#8b9bb0';
+  ctx.font = '10px sans-serif';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + H * (i / 4);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + W, y); ctx.stroke();
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.round(maxV * (1 - i / 4))), padL - 6, y);
+  }
+  data.forEach((x, i) => {
+    const val = x.v || 0;
+    const h = (val / maxV) * H;
+    const bx = padL + i * (bw + gap);
+    const by = padT + H - h;
+    if (x.v == null) {
+      ctx.fillStyle = '#2a3542';
+      ctx.fillRect(bx, padT + H - 2, bw, 2);
+    } else {
+      const diff = x.v - target;
+      ctx.fillStyle = diff <= 0 ? '#3dd68c' : (diff <= 100 ? '#f5a524' : '#f07178');
+      if (h < 2) ctx.fillRect(bx, padT + H - 2, bw, 2);
+      else ctx.fillRect(bx, by, bw, h);
+    }
+    if (n <= 14 || i % 3 === 0) {
+      ctx.fillStyle = '#8b9bb0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(x.label, bx + bw / 2, cssH - 10);
+    }
+  });
+  const ty = padT + H - (target / maxV) * H;
+  ctx.strokeStyle = '#8b9bb0';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, ty); ctx.lineTo(padL + W, ty); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* period stats for week/month */
+function periodStats(entries, weights, target, start, end) {
+  const days = [];
+  let d = start;
+  let guard = 0;
+  while (d <= end && guard++ < 62) {
+    const dayE = entries.filter(e => e.date === d);
+    const total = dayE.reduce((s, e) => s + (+e.kcal || 0), 0);
+    days.push({ date: d, total: dayE.length ? total : null, has: dayE.length > 0 });
+    d = shiftDate(d, 1);
+  }
+  const rec = days.filter(x => x.has);
+  const totalAll = rec.reduce((s, x) => s + x.total, 0);
+  const avg = rec.length ? Math.round(totalAll / rec.length) : 0;
+  const ok = rec.filter(x => x.total <= target).length;
+  const overDays = rec.filter(x => x.total > target);
+  const overSum = overDays.reduce((s, x) => s + (x.total - target), 0);
+  const maxOver = overDays.reduce((m, x) => Math.max(m, x.total - target), 0);
+  const fatEq = Math.round(overSum / 7700 * 100) / 100; // kg 脂肪当量
+
+  const wIn = weights
+    .filter(w => w.date >= start && w.date <= end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let weightLoss = null, wStart = null, wEnd = null;
+  if (wIn.length) {
+    wStart = wIn[0];
+    wEnd = wIn[wIn.length - 1];
+    if (wStart && wEnd) weightLoss = Math.round((wStart.jin - wEnd.jin) * 10) / 10;
+  }
+  return {
+    days: days,
+    total: totalAll,
+    avg: avg,
+    rec: rec.length,
+    ok: ok,
+    okRate: rec.length ? Math.round(ok / rec.length * 100) : null,
+    overDays: overDays.length,
+    overSum: overSum,
+    maxOver: maxOver,
+    fatEq: fatEq,
+    weightLoss: weightLoss,
+    wStart: wStart,
+    wEnd: wEnd
+  };
+}
+
+function compareAllUsers(start, end) {
+  return loadUsers().users.map(u => {
+    const st = periodStats(u.entries || [], u.weights || [], u.target || 1000, start, end);
+    return { name: u.name, target: u.target, stats: st };
+  });
+}
+
+/* shared CSS */
+(function injectCSS() {
+  const css = `
+:root{--bg:#0f1419;--card:#1a222c;--text:#e7eef7;--muted:#8b9bb0;--ok:#3dd68c;--warn:#f5a524;--bad:#f07178;--line:#2a3542;--accent:#5b9dff;--accent2:#7c6cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);padding:calc(14px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));-webkit-tap-highlight-color:transparent}
+.wrap{max-width:520px;margin:0 auto}
+.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.nav a{display:block;text-align:center;padding:12px 8px;border-radius:12px;background:rgba(255,255,255,.05);color:var(--muted);text-decoration:none;font-size:13px;font-weight:600}
+.nav a.on{background:rgba(91,157,255,.18);color:var(--accent)}
+.userbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.user-label{font-size:12px;color:var(--muted);width:100%}
+.user-sel{flex:1;min-width:120px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:14px}
+.user-btn{border:0;background:rgba(91,157,255,.15);color:var(--accent);font-weight:600;border-radius:10px;padding:10px 12px;font-size:12px;cursor:pointer}
+.user-btn.danger{background:rgba(240,113,120,.15);color:var(--bad)}
+.datebar{display:flex;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.datebar input{flex:1;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:14px;outline:none;min-width:0}
+.datebar button{border:0;background:rgba(91,157,255,.15);color:var(--accent);font-weight:700;border-radius:10px;padding:10px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+.hero{text-align:center;padding:8px 0 14px}
+.hero .date{color:var(--muted);font-size:13px}
+.hero .total{font-size:48px;font-weight:700;line-height:1.1;margin:6px 0}
+.hero .total span{font-size:15px;color:var(--muted);font-weight:500}
+.kcal-big{font-size:64px;font-weight:800;line-height:1.05;margin:4px 0 2px;letter-spacing:-1px}
+.kcal-big em{font-style:normal;font-size:18px;font-weight:700;color:var(--muted);margin-left:6px}
+.kcal-sub{font-size:14px;color:var(--muted);margin-bottom:10px}
+.badge{display:inline-block;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600}
+.badge.ok{background:rgba(61,214,140,.15);color:var(--ok)}
+.badge.warn{background:rgba(245,165,36,.15);color:var(--warn)}
+.badge.bad{background:rgba(240,113,120,.15);color:var(--bad)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.card h2{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
+.grid{display:grid;gap:10px}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g2{grid-template-columns:1fr 1fr}
+.stat{background:rgba(255,255,255,.04);border-radius:12px;padding:12px 8px;text-align:center}
+.stat .v{font-size:20px;font-weight:700}
+.stat .k{font-size:11px;color:var(--muted);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:9px 4px;text-align:left}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+th{color:var(--muted);font-weight:500;font-size:11px;border-bottom:1px solid var(--line)}
+tr+tr td{border-top:1px solid var(--line)}
+tr.ok td{color:var(--ok)} tr.bad td{color:var(--bad)}
+.empty{color:var(--muted);text-align:center;padding:20px 0 !important}
+.btn{border:0;border-radius:12px;padding:13px 14px;font-size:15px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;width:100%}
+.btn:active{opacity:.85}
+.btn.ghost{background:rgba(255,255,255,.06);color:var(--text)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:rgba(91,157,255,.12);color:var(--accent);border:1px solid rgba(91,157,255,.25);border-radius:999px;padding:8px 11px;font-size:12px;cursor:pointer;user-select:none}
+.chip:active{transform:scale(.97)}
+input[type=text],input[type=number],input[type=date],input[type=month],select{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px;font-size:16px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+label{display:block;font-size:11px;color:var(--muted);margin:0 0 6px}
+.field{margin-bottom:12px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:rgba(255,255,255,.04);padding:4px;border-radius:12px}
+.seg button{border:0;background:transparent;color:var(--muted);padding:10px 4px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer}
+.seg button.on{background:rgba(91,157,255,.2);color:var(--accent)}
+.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:14px}
+.tabs button{border:0;background:rgba(255,255,255,.05);color:var(--muted);padding:11px 2px;border-radius:11px;font-size:11px;font-weight:600;cursor:pointer}
+.tabs button.on{background:rgba(91,157,255,.18);color:var(--accent)}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-80px);background:#222c38;color:#fff;padding:12px 18px;border-radius:12px;font-size:14px;transition:transform .25s;z-index:99;box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:90vw}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.del{color:var(--bad);background:none;border:0;font-size:18px;cursor:pointer;padding:4px 8px}
+.foot{text-align:center;color:var(--muted);font-size:11px;margin-top:18px;opacity:.75;line-height:1.7}
+.kcal-input{display:flex;gap:8px}
+.kcal-input input{flex:1}
+.plus{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--text);font-size:22px;cursor:pointer;flex-shrink:0}
+canvas{width:100%;height:230px;display:block}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.chart-note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+.autocomplete{position:relative}
+.ac-list{position:absolute;left:0;right:0;top:100%;z-index:20;background:#222c38;border:1px solid var(--line);border-radius:12px;margin-top:4px;max-height:220px;overflow:auto;display:none}
+.ac-list.open{display:block}
+.ac-item{padding:11px 12px;cursor:pointer;display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.ac-item:hover,.ac-item:active{background:rgba(91,157,255,.15)}
+.ac-item .m{color:var(--muted);font-size:11px}
+.cmp-btn{width:100%;margin:10px 0}
+`;
+  const st = document.createElement('style');
+  st.textContent = css;
+  document.head.appendChild(st);
+})();
+
+/* ---------- PWA：注册 Service Worker + 安装提示 ---------- */
+(function () {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+
+  let deferred = null;
+  const banner = document.createElement('div');
+  banner.id = 'pwaInstall';
+  banner.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:98;display:none;gap:10px;align-items:center;background:#222c38;border:1px solid #2a3542;border-radius:14px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.4)';
+  banner.innerHTML = '<div style="flex:1;font-size:13px;color:#e6edf3">装到桌面，当软件用</div>' +
+    '<button id="pwaYes" style="border:0;background:#5b9dff;color:#fff;border-radius:10px;padding:9px 14px;font-size:13px;cursor:pointer">安装</button>' +
+    '<button id="pwaNo" style="border:0;background:transparent;color:#8b9bb0;padding:9px 10px;font-size:13px;cursor:pointer">不用</button>';
+  document.body.appendChild(banner);
+
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+
+  if (!isStandalone && isIOS && !localStorage.getItem('pwa_hint_dismissed')) {
+    banner.querySelector('div').textContent = 'iPhone：Safari 分享 → 添加到主屏幕，当软件用';
+    banner.querySelector('#pwaYes').textContent = '知道了';
+    banner.style.display = 'flex';
+    banner.querySelector('#pwaYes').onclick = () => {
+      localStorage.setItem('pwa_hint_dismissed', '1');
+      banner.style.display = 'none';
+    };
+    banner.querySelector('#pwaNo').onclick = () => {
+      localStorage.setItem('pwa_hint_dismissed', '1');
+      banner.style.display = 'none';
+    };
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    if (isStandalone || localStorage.getItem('pwa_hint_dismissed')) return;
+    banner.querySelector('div').textContent = '装到桌面，当软件用（可离线打开）';
+    banner.querySelector('#pwaYes').textContent = '安装';
+    banner.style.display = 'flex';
+  });
+
+  banner.querySelector('#pwaYes').onclick = async () => {
+    if (deferred) {
+      deferred.prompt();
+      try { await deferred.userChoice; } catch (e) {}
+      deferred = null;
+    }
+    banner.style.display = 'none';
+    localStorage.setItem('pwa_hint_dismissed', '1');
+  };
+  banner.querySelector('#pwaNo').onclick = () => {
+    banner.style.display = 'none';
+    localStorage.setItem('pwa_hint_dismissed', '1');
+  };
+
+  window.addEventListener('appinstalled', () => {
+    banner.style.display = 'none';
+    toast('已安装到桌面');
+  });
+})();

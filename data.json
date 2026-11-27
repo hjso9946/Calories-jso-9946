@@ -1,0 +1,44 @@
+{
+  "updated": "2026-11-27",
+  "target": 1000,
+  "entries": [],
+  "weights": [],
+  "users": [],
+  "foods": [
+    {
+      "name": "米饭",
+      "amount": "100g",
+      "kcal": 116
+    },
+    {
+      "name": "面条",
+      "amount": "100g",
+      "kcal": 110
+    },
+    {
+      "name": "馒头",
+      "amount": "100g",
+      "kcal": 223
+    },
+    {
+      "name": "鸡胸肉",
+      "amount": "100g",
+      "kcal": 133
+    },
+    {
+      "name": "鸡蛋",
+      "amount": "1个",
+      "kcal": 70
+    },
+    {
+      "name": "牛奶",
+      "amount": "100ml",
+      "kcal": 54
+    },
+    {
+      "name": "无糖可乐",
+      "amount": "1瓶",
+      "kcal": 0
+    }
+  ]
+}

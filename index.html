@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#0f1419"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="卡路里"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<link rel="icon" type="image/png" sizes="96x96" href="icon-96.png"/>
+<title>卡路里</title>
+</head>
+<body>
+<div class="wrap">
+  <div id="userBar"></div>
+  <div id="navHost"></div>
+
+  <div class="datebar">
+    <button id="btnPrev">◀</button>
+    <input type="date" id="dateInput"/>
+    <button id="btnNext">▶</button>
+    <button id="btnToday">今天</button>
+    <button id="btnSettings" title="设置">⚙</button>
+  </div>
+
+  <div class="hero">
+    <div class="date" id="heroDate">—</div>
+    <div class="kcal-big"><span id="heroTotal">0</span><em>大卡</em></div>
+    <div class="kcal-sub">目标 <span id="heroTarget">1000</span></div>
+    <div class="badge" id="heroBadge">—</div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button data-t="list" class="on">明细</button>
+    <button data-t="add">记一笔</button>
+    <button data-t="week">周报</button>
+    <button data-t="month">月报</button>
+    <button data-t="trend">趋势</button>
+  </div>
+
+  <div class="card tab-pane" id="tab-list">
+    <h2 id="listTitle">今日明细</h2>
+    <table>
+      <tr><th>餐次</th><th>食物</th><th>份量</th><th style="text-align:right">热量</th><th></th></tr>
+      <tbody id="listBody"></tbody>
+    </table>
+    <button class="btn ghost cmp-btn" id="dayCmpBtn">对比所有用户（今日）</button>
+    <div id="dayCmp" hidden></div>
+  </div>
+
+  <div class="card tab-pane" id="tab-add" hidden>
+    <h2>记一笔</h2>
+    <div class="seg" id="mealSeg">
+      <button data-v="早餐" class="on">早餐</button>
+      <button data-v="午餐">午餐</button>
+      <button data-v="晚餐">晚餐</button>
+      <button data-v="加餐">加餐</button>
+    </div>
+    <div class="field autocomplete" style="margin-top:12px">
+      <label>食物（输入关键词联想）</label>
+      <input type="text" id="fFood" placeholder="如：米饭 / 双吉 / 猪脚" autocomplete="off"/>
+      <div class="ac-list" id="acList"></div>
+    </div>
+    <div class="field">
+      <label>份量（如 200g / 1个 / 小杯）</label>
+      <input type="text" id="fAmt" placeholder="100g"/>
+    </div>
+    <div class="field">
+      <label>热量（大卡）· 改份量会按比例自动算</label>
+      <div class="kcal-input">
+        <button class="plus" id="kMinus">−</button>
+        <input type="number" id="fKcal" step="1" placeholder="自动或手填"/>
+        <button class="plus" id="kPlus">+</button>
+      </div>
+    </div>
+    <button class="btn" id="btnSave">保存</button>
+    <div class="chips" id="quickChips" style="margin-top:12px"></div>
+
+    <div style="margin-top:18px">
+      <button class="btn" id="btnVoice" style="background:rgba(124,108,255,.18);color:#b7a8ff">🎤 语音记一笔</button>
+      <div class="chart-note" id="voiceHint">说一句，例如：中午吃了猪脚饭 300 克，还有无糖可乐</div>
+      <div id="voiceBox" hidden>
+        <div class="field" style="margin-top:10px">
+          <label>识别结果（可改）</label>
+          <input type="text" id="voiceText"/>
+        </div>
+        <div class="grid g2">
+          <button class="btn" id="voiceOk">记下</button>
+          <button class="btn ghost" id="voiceCancel">取消</button>
+        </div>
+        <div id="voicePreview" class="chart-note" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card tab-pane" id="tab-week" hidden>
+    <h2>周报 · <span id="weekRange"></span></h2>
+    <div class="datebar" style="margin-bottom:12px">
+      <button id="wPrev">上一周</button>
+      <button id="wThis">本周</button>
+      <button id="wNext">下一周</button>
+    </div>
+    <div class="grid g3" id="weekStats"></div>
+    <div class="grid g3" id="weekStats2" style="margin-top:10px"></div>
+    <table style="margin-top:14px">
+      <tr><th>日期</th><th>星期</th><th style="text-align:right">摄入</th><th style="text-align:right">差额</th></tr>
+      <tbody id="weekBody"></tbody>
+    </table>
+    <div class="chart-note">绿色=达标 · 橙/红=超额</div>
+    <canvas id="weekChart" width="640" height="230" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:#3dd68c"></i>达标</span><span><i style="background:#f5a524"></i>超≤100</span><span><i style="background:#f07178"></i>超&gt;100</span></div>
+    <button class="btn ghost cmp-btn" id="weekCmpBtn">对比所有用户</button>
+    <div id="weekCmp" hidden></div>
+  </div>
+
+  <div class="card tab-pane" id="tab-month" hidden>
+    <h2>月报 · <span id="monthRange"></span></h2>
+    <div class="datebar" style="margin-bottom:12px">
+      <button id="mPrev">◀</button>
+      <input type="month" id="mPick"/>
+      <button id="mNext">▶</button>
+    </div>
+    <div class="grid g3" id="monthStats"></div>
+    <div class="grid g3" id="monthStats2" style="margin-top:10px"></div>
+    <table style="margin-top:14px">
+      <tr><th>日期</th><th style="text-align:right">摄入</th><th style="text-align:right">差额</th></tr>
+      <tbody id="monthBody"></tbody>
+    </table>
+    <canvas id="monthChart" width="640" height="230" style="margin-top:10px"></canvas>
+    <div class="legend"><span><i style="background:#3dd68c"></i>达标</span><span><i style="background:#f5a524"></i>超≤100</span><span><i style="background:#f07178"></i>超&gt;100</span></div>
+    <button class="btn ghost cmp-btn" id="monthCmpBtn">对比所有用户</button>
+    <div id="monthCmp" hidden></div>
+  </div>
+
+  <div class="card tab-pane" id="tab-trend" hidden>
+    <h2>近30天趋势</h2>
+    <canvas id="trendBars" width="640" height="230"></canvas>
+    <div class="legend"><span><i style="background:#3dd68c"></i>≤目标</span><span><i style="background:#f5a524"></i>超≤100</span><span><i style="background:#f07178"></i>超&gt;100</span><span><i style="background:#8b9bb0"></i>目标线</span></div>
+    <canvas id="trendLine" width="640" height="230" style="margin-top:16px"></canvas>
+    <div class="legend"><span><i style="background:#5b9dff"></i>每日摄入</span></div>
+  </div>
+
+  <div class="card tab-pane" id="tab-set" hidden>
+    <h2>设置</h2>
+    <div class="field">
+      <label>每日目标（大卡）</label>
+      <input type="number" id="targetInput" step="50" placeholder="1000"/>
+    </div>
+    <button class="btn" id="btnTarget">保存目标</button>
+
+    <h2 style="margin-top:20px">管理员模式</h2>
+    <p class="chart-note" id="adminStatus">未开启 · 仅删除用户需要先开启</p>
+    <div class="grid g2">
+      <button class="btn ghost" id="btnAdminOn">开启管理员</button>
+      <button class="btn ghost" id="btnAdminOff">关闭管理员</button>
+    </div>
+    <button class="btn" id="btnClear" style="margin-top:12px;background:rgba(240,113,120,.2);color:#f07178">清空当前用户记录</button>
+
+    <h2 style="margin-top:20px">云端同步（多端互通）</h2>
+    <p class="chart-note" id="syncStatus">未开启</p>
+    <div class="field">
+      <label>GitHub Token（只写 contents，所有设备填同一个）</label>
+      <input type="text" id="syncToken" placeholder="ghp_... 或 github_pat_..."/>
+    </div>
+    <div class="field">
+      <label>仓库（默认已填好）</label>
+      <input type="text" id="syncRepo" placeholder="hjso9946/Calories-data"/>
+    </div>
+    <button class="btn" id="btnSyncSave">保存并开启同步</button>
+    <div class="grid g2" style="margin-top:10px">
+      <button class="btn ghost" id="btnSyncNow">立即同步</button>
+      <button class="btn ghost" id="btnSyncOff">关闭同步</button>
+    </div>
+    <p class="chart-note">开启后自动同步；记账后自动上传。手机/电脑/平板 任意多台填同一个 Token 即互通，新设备不限数量：填 Token → 切到自己的用户即可。Token 只存本机。</p>
+
+    <h2 style="margin-top:20px">数据</h2>
+    <div class="grid g2">
+      <button class="btn ghost" id="btnExport">导出 JSON</button>
+      <button class="btn ghost" id="btnImport">导入 JSON</button>
+    </div>
+    <p class="chart-note">每人一个用户，手机电脑切到同一用户即可 · 食物库全局共享 · 热量/体重/转盘按用户分开</p>
+    <button class="btn ghost" id="btnBack" style="margin-top:12px">← 返回</button>
+  </div>
+
+  <div class="foot">数据存本机浏览器 · 日期带星期 · 份量按比例算热量</div>
+</div>
+<script src="app.js?v=20261102g"></script>
+<script>
+renderNav('index.html');
+
+let meal = '早餐';
+let curDate = todayISO();
+let weekStart = mondayOf(todayISO());
+let monthVal = todayISO().slice(0, 7);
+
+function u() { return activeUser(); }
+
+function totalOf(date) {
+  return (u().entries || []).filter(e => e.date === date).reduce((s, e) => s + (+e.kcal || 0), 0);
+}
+
+function renderHero() {
+  const st = u();
+  const t = totalOf(curDate);
+  $('#heroDate').textContent = fmtDate(curDate) + (st.name ? ' · ' + st.name : '');
+  $('#heroTotal').textContent = t;
+  $('#heroTarget').textContent = st.target || 1000;
+  const diff = t - (st.target || 1000);
+  const b = $('#heroBadge');
+  b.className = 'badge ' + statusLevel(diff);
+  b.textContent = t === 0 ? '还没记录' :
+    (diff <= 0 ? '✅ 还可吃 ' + Math.abs(diff) + ' 大卡' : '⚠️ 已超出 ' + diff + ' 大卡');
+}
+
+function renderList() {
+  $('#listTitle').textContent = fmtDate(curDate) + ' 明细';
+  const list = (u().entries || []).filter(e => e.date === curDate && !(typeof isDeleted === 'function' && e.id && isDeleted('e:' + e.id)));
+  const body = $('#listBody');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">这天还没有记录</td></tr>';
+    return;
+  }
+  body.innerHTML = list.map(e => (
+    '<tr><td>' + (e.meal || '') + '</td><td>' + (e.food || '') + '</td><td>' + (e.amount || '') + '</td>' +
+    '<td class="num">' + (e.kcal || 0) + '</td>' +
+    '<td style="text-align:right"><button class="del" data-id="' + e.id + '">×</button></td></tr>'
+  )).join('');
+  body.querySelectorAll('.del').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      try {
+        const st = u();
+        st.entries = (st.entries || []).filter(x => x.id !== id);
+        saveActiveUser(st);
+        if (typeof markDeleted === 'function') markDeleted('e:' + id);
+      } catch (err) {}
+      renderAll();
+      toast('已删除');
+    };
+  });
+}
+
+function setDate(ds) {
+  curDate = ds;
+  $('#dateInput').value = ds;
+  renderHero();
+  renderList();
+  if (!$('#dayCmp').hidden) renderDayCompare();
+}
+
+$('#btnPrev').onclick = () => setDate(shiftDate(curDate, -1));
+$('#btnNext').onclick = () => setDate(shiftDate(curDate, 1));
+$('#btnToday').onclick = () => setDate(todayISO());
+$('#dateInput').onchange = (e) => { if (e.target.value) setDate(e.target.value); };
+
+$all('#mealSeg button').forEach(b => {
+  b.onclick = () => {
+    meal = b.dataset.v;
+    $all('#mealSeg button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  };
+});
+
+const fFood = $('#fFood');
+const acList = $('#acList');
+
+function showAC(q) {
+  const items = searchFood(q);
+  if (!items.length) {
+    acList.classList.remove('open');
+    return;
+  }
+  acList.innerHTML = items.map((x, i) => (
+    '<div class="ac-item" data-i="' + i + '"><span>' + x.name + '</span>' +
+    '<span class="m">' + (x.amount || '') + ' · ' + x.kcal + ' 大卡</span></div>'
+  )).join('');
+  acList.classList.add('open');
+  acList.querySelectorAll('.ac-item').forEach(el => {
+    el.onclick = () => {
+      const it = items[+el.dataset.i];
+      fFood.value = it.name;
+      $('#fAmt').value = it.amount || '';
+      $('#fKcal').value = it.kcal || '';
+      acList.classList.remove('open');
+    };
+  });
+}
+
+fFood.oninput = () => {
+  showAC(fFood.value);
+  autoFillKcal();
+};
+fFood.onfocus = () => showAC(fFood.value);
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.autocomplete')) acList.classList.remove('open');
+});
+
+function autoFillKcal() {
+  const name = fFood.value.trim();
+  const amt = $('#fAmt').value.trim();
+  if (!name) return;
+  const list = loadFooddb();
+  const exact = list.find(x => x.name === name && (x.amount || '') === amt);
+  if (exact) {
+    $('#fKcal').value = exact.kcal;
+    return;
+  }
+  const byName = list.find(x => x.name === name);
+  if (byName && amt) {
+    const scaled = scaleKcal(byName.amount, byName.kcal, amt);
+    if (scaled != null) $('#fKcal').value = scaled;
+  } else if (byName && !amt) {
+    $('#fAmt').value = byName.amount || '';
+    $('#fKcal').value = byName.kcal;
+  }
+}
+
+$('#fAmt').oninput = () => {
+  const name = fFood.value.trim();
+  const amt = $('#fAmt').value.trim();
+  if (!name) return;
+  const byName = loadFooddb().find(x => x.name === name);
+  if (byName) {
+    const scaled = scaleKcal(byName.amount, byName.kcal, amt);
+    if (scaled != null) $('#fKcal').value = scaled;
+  }
+};
+
+$('#kMinus').onclick = () => {
+  const n = +$('#fKcal').value || 0;
+  $('#fKcal').value = Math.max(0, n - 5);
+};
+$('#kPlus').onclick = () => {
+  const n = +$('#fKcal').value || 0;
+  $('#fKcal').value = n + 5;
+};
+
+function renderChips() {
+  const list = loadFooddb().slice(0, 12);
+  const box = $('#quickChips');
+  box.innerHTML = list.map(x => '<div class="chip" data-n="' + x.name + '">' + x.name + ' ' + x.kcal + '</div>').join('');
+  box.querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => {
+      const it = list.find(x => x.name === c.dataset.n);
+      if (!it) return;
+      fFood.value = it.name;
+      $('#fAmt').value = it.amount || '';
+      $('#fKcal').value = it.kcal || '';
+    };
+  });
+}
+
+$('#btnSave').onclick = () => {
+  const food = fFood.value.trim();
+  const amount = $('#fAmt').value.trim();
+  const kcal = +$('#fKcal').value;
+  if (!food) { toast('请填食物'); return; }
+  if (isNaN(kcal) || kcal < 0) { toast('请填热量'); return; }
+  const st = u();
+  st.entries = st.entries || [];
+  const newId = curDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5);
+  clearDeleted(entryDelKey(newId));
+  st.entries.push({
+    id: newId,
+    date: curDate,
+    meal: meal,
+    food: food,
+    amount: amount,
+    kcal: Math.round(kcal),
+    note: ''
+  });
+  saveActiveUser(st);
+  upsertFood(food, amount, Math.round(kcal));
+  fFood.value = '';
+  $('#fAmt').value = '';
+  $('#fKcal').value = '';
+  renderAll();
+  toast('已记录 ' + food + ' ' + Math.round(kcal) + ' 大卡');
+};
+
+$all('#tabs button').forEach(b => {
+  b.onclick = () => {
+    $all('#tabs button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    $all('.tab-pane').forEach(p => p.hidden = true);
+    const pane = document.getElementById('tab-' + b.dataset.t);
+    if (pane) pane.hidden = false;
+    if (b.dataset.t === 'week') renderWeek();
+    if (b.dataset.t === 'month') renderMonth();
+    if (b.dataset.t === 'trend') renderTrend();
+    if (b.dataset.t === 'add') renderChips();
+  };
+});
+
+function renderWeek() {
+  const st = u();
+  const end = shiftDate(weekStart, 6);
+  $('#weekRange').textContent = weekStart.slice(5) + ' ~ ' + end.slice(5);
+  const target = st.target || 1000;
+  const ps = periodStats(st.entries || [], st.weights || [], target, weekStart, end);
+
+  $('#weekStats').innerHTML = [
+    { k: '本周总摄入', v: ps.total },
+    { k: '日均摄入', v: ps.avg },
+    { k: '达标天数', v: ps.ok + ' / ' + (ps.rec || 0) }
+  ].map(x => '<div class="stat"><div class="v">' + x.v + '</div><div class="k">' + x.k + '</div></div>').join('');
+
+  $('#weekStats2').innerHTML = [
+    { k: '超额天数', v: ps.overDays },
+    { k: '累计超额', v: ps.overSum },
+    { k: '减重（斤）', v: ps.weightLoss == null ? '—' : (ps.weightLoss > 0 ? '−' : '') + Math.abs(ps.weightLoss) }
+  ].map(x => '<div class="stat"><div class="v">' + x.v + '</div><div class="k">' + x.k + '</div></div>').join('');
+
+  $('#weekBody').innerHTML = ps.days.map(d => {
+    const t = d.total == null ? '—' : d.total;
+    const diff = d.total == null ? null : d.total - target;
+    const cls = diff == null ? '' : (diff <= 0 ? 'ok' : 'bad');
+    const dt = diff == null ? '—' : (diff > 0 ? '+' : '') + diff;
+    return '<tr class="' + cls + '"><td>' + d.date + '</td><td>' + weekdayOf(d.date) + '</td><td class="num">' + t + '</td><td class="num">' + dt + '</td></tr>';
+  }).join('');
+
+  drawBars($('#weekChart'), ps.days.map(d => ({ label: weekdayOf(d.date).slice(1), v: d.total })), { target: target, height: 230 });
+}
+
+function renderMonth() {
+  const st = u();
+  const y = +monthVal.slice(0, 4), m = +monthVal.slice(5, 7);
+  const start = monthVal + '-01';
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = monthVal + '-' + String(lastDay).padStart(2, '0');
+  $('#monthRange').textContent = monthVal;
+  $('#mPick').value = monthVal;
+  const target = st.target || 1000;
+  const ps = periodStats(st.entries || [], st.weights || [], target, start, end);
+
+  $('#monthStats').innerHTML = [
+    { k: '本月总摄入', v: ps.total },
+    { k: '日均摄入', v: ps.avg },
+    { k: '达标天数', v: ps.ok + ' / ' + (ps.rec || 0) }
+  ].map(x => '<div class="stat"><div class="v">' + x.v + '</div><div class="k">' + x.k + '</div></div>').join('');
+
+  $('#monthStats2').innerHTML = [
+    { k: '超额天数', v: ps.overDays },
+    { k: '累计超额', v: ps.overSum },
+    { k: '减重（斤）', v: ps.weightLoss == null ? '—' : (ps.weightLoss > 0 ? '−' : '') + Math.abs(ps.weightLoss) }
+  ].map(x => '<div class="stat"><div class="v">' + x.v + '</div><div class="k">' + x.k + '</div></div>').join('');
+
+  $('#monthBody').innerHTML = ps.days.filter(d => d.has).map(d => {
+    const t = d.total;
+    const diff = t - target;
+    return '<tr class="' + (diff <= 0 ? 'ok' : 'bad') + '"><td>' + d.date + ' ' + weekdayOf(d.date) + '</td><td class="num">' + t + '</td><td class="num">' + (diff > 0 ? '+' : '') + diff + '</td></tr>';
+  }).join('') || '<tr><td colspan="3" class="empty">本月还没有记录</td></tr>';
+
+  drawBars($('#monthChart'), ps.days.map(d => ({ label: d.date.slice(8), v: d.total })), { target: target, height: 230 });
+}
+
+function renderCompare(hostId, start, end) {
+  const host = $(hostId);
+  const rows = compareAllUsers(start, end);
+  host.innerHTML = '<h2>全员对比</h2><table>' +
+    '<tr><th>用户</th><th>总摄入</th><th>日均</th><th>达标</th><th>超额天</th><th>累计超</th><th>减重</th></tr>' +
+    rows.map(r => {
+      const s = r.stats;
+      const w = s.weightLoss == null ? '—' : (s.weightLoss > 0 ? '−' : (s.weightLoss < 0 ? '+' : '')) + Math.abs(s.weightLoss);
+      return '<tr><td>' + r.name + '</td><td class="num">' + s.total + '</td><td class="num">' + s.avg + '</td>' +
+        '<td class="num">' + s.ok + '/' + (s.rec || 0) + '</td><td class="num">' + s.overDays + '</td>' +
+        '<td class="num">' + s.overSum + '</td><td class="num">' + w + ' 斤</td></tr>';
+    }).join('') +
+    '</table><p class="chart-note">减重 = 期末−期初（负数=变轻）；累计超 = 每天超出目标的热量之和</p>';
+}
+
+$('#weekCmpBtn').onclick = () => {
+  const el = $('#weekCmp');
+  if (!el.hidden) { el.hidden = true; return; }
+  renderCompare('#weekCmp', weekStart, shiftDate(weekStart, 6));
+  el.hidden = false;
+};
+
+$('#monthCmpBtn').onclick = () => {
+  const el = $('#monthCmp');
+  if (!el.hidden) { el.hidden = true; return; }
+  const y = +monthVal.slice(0, 4), m = +monthVal.slice(5, 7);
+  renderCompare('#monthCmp', monthVal + '-01', monthVal + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'));
+  el.hidden = false;
+};
+
+$('#wPrev').onclick = () => { weekStart = shiftDate(weekStart, -7); renderWeek(); };
+$('#wNext').onclick = () => { weekStart = shiftDate(weekStart, 7); renderWeek(); };
+$('#wThis').onclick = () => { weekStart = mondayOf(todayISO()); renderWeek(); };
+$('#mPrev').onclick = () => {
+  const y = +monthVal.slice(0, 4), m = +monthVal.slice(5, 7);
+  const d = new Date(y, m - 2, 1);
+  monthVal = d.toISOString().slice(0, 7);
+  renderMonth();
+};
+$('#mNext').onclick = () => {
+  const y = +monthVal.slice(0, 4), m = +monthVal.slice(5, 7);
+  const d = new Date(y, m, 1);
+  monthVal = d.toISOString().slice(0, 7);
+  renderMonth();
+};
+$('#mPick').onchange = (e) => { if (e.target.value) { monthVal = e.target.value; renderMonth(); } };
+
+function renderTrend() {
+  const st = u();
+  const target = st.target || 1000;
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const ds = shiftDate(todayISO(), -i);
+    const es = (st.entries || []).filter(e => e.date === ds);
+    days.push({ date: ds, total: es.length ? es.reduce((s, e) => s + (+e.kcal || 0), 0) : null, has: es.length > 0 });
+  }
+  drawBars($('#trendBars'), days.map(d => ({ label: d.date.slice(5), v: d.total })), { target: target, height: 230 });
+  const line = days.filter(d => d.has).map(d => ({ label: d.date.slice(5), v: d.total }));
+  drawLine($('#trendLine'), line, { color: '#5b9dff', target: target, height: 230, empty: '还没有摄入记录' });
+}
+
+$('#btnTarget').onclick = () => {
+  const t = +$('#targetInput').value;
+  if (isNaN(t) || t < 500 || t > 5000) { toast('目标建议 500–5000'); return; }
+  const st = u();
+  st.target = Math.round(t);
+  saveActiveUser(st);
+  renderHero();
+  toast('目标已改为 ' + st.target + ' 大卡');
+};
+
+$('#btnExport').onclick = () => {
+  const payload = {
+    users: loadUsers().users,
+    foods: loadFooddb(),
+    spins: JSON.parse(localStorage.getItem(LS_SPINS) || 'null'),
+    deletes: loadDeletes(),
+    exported: todayISO()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'calorie-' + todayISO() + '.json';
+  a.click();
+  toast('已导出');
+};
+
+$('#btnImport').onclick = () => {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'application/json';
+  inp.onchange = async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      if (Array.isArray(j.users) && j.users.length) {
+        localStorage.setItem(LS_USERS, JSON.stringify({ activeId: j.users[0].id, users: j.users }));
+      } else if (Array.isArray(j.entries)) {
+        const st = u();
+        st.entries = j.entries;
+        if (j.weights) st.weights = j.weights;
+        if (j.target) st.target = j.target;
+        saveActiveUser(st);
+      }
+      if (Array.isArray(j.foods)) saveFooddb(j.foods);
+      if (j.spins && Array.isArray(j.spins.boards)) localStorage.setItem(LS_SPINS, JSON.stringify(j.spins));
+      if (j.deletes && typeof j.deletes === 'object') {
+        const merged = Object.assign(loadDeletes(), j.deletes);
+        saveDeletes(merged);
+      }
+      renderAll();
+      toast('导入成功');
+    } catch (e) {
+      toast('导入失败');
+    }
+  };
+  inp.click();
+};
+
+$('#btnClear').onclick = () => {
+  if (!confirm('清空「' + u().name + '」全部记录？')) return;
+  const st = u();
+  const keys = [];
+  (st.entries || []).forEach(e => { if (e && e.id) keys.push(entryDelKey(e.id)); });
+  (st.weights || []).forEach(w => { if (w && w.date) keys.push(weightDelKey(st.id, w.date)); });
+  markDeletedMany(keys);
+  st.entries = [];
+  st.weights = [];
+  saveActiveUser(st);
+  renderAll();
+  toast('已清空');
+};
+
+function renderAll() {
+  renderHero();
+  renderList();
+  renderChips();
+}
+
+function renderDayCompare() {
+  const host = $('#dayCmp');
+  const users = loadUsers().users;
+  const rows = users.map(user => {
+    const es = (user.entries || []).filter(e => e.date === curDate);
+    const total = es.reduce((s, e) => s + (+e.kcal || 0), 0);
+    const target = user.target || 1000;
+    return { name: user.name, total: total, target: target, n: es.length };
+  }).sort((a, b) => a.total - b.total);
+  host.innerHTML = '<h2>今日全员对比</h2><table>' +
+    '<tr><th>用户</th><th>条数</th><th style="text-align:right">摄入</th><th style="text-align:right">目标</th><th style="text-align:right">差额</th></tr>' +
+    rows.map(r => {
+      const diff = r.total - r.target;
+      return '<tr class="' + (diff <= 0 ? 'ok' : 'bad') + '"><td>' + r.name + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + r.total + '</td><td class="num">' + r.target + '</td>' +
+        '<td class="num">' + (diff > 0 ? '+' : '') + diff + '</td></tr>';
+    }).join('') +
+    '</table><p class="chart-note">' + fmtDate(curDate) + ' · 绿色=达标 · 红色=超额</p>';
+}
+
+$('#dayCmpBtn').onclick = () => {
+  const el = $('#dayCmp');
+  if (!el.hidden) { el.hidden = true; return; }
+  renderDayCompare();
+  el.hidden = false;
+};
+
+function showSettings(show) {
+  $all('#tabs button').forEach(x => x.classList.remove('on'));
+  $all('.tab-pane').forEach(p => p.hidden = true);
+  if (show) {
+    $('#tab-set').hidden = false;
+    $('#targetInput').value = u().target || 1000;
+    renderSyncUI();
+    $('#adminStatus').textContent = isAdmin()
+      ? '已开启 · 可删除用户'
+      : '未开启 · 仅删除用户需要先开启';
+    $('#adminStatus').style.color = isAdmin() ? '#3dd68c' : '#f5a524';
+    $('#btnAdminOn').hidden = isAdmin();
+    $('#btnAdminOff').hidden = !isAdmin();
+  } else {
+    // 回到明细
+    const first = document.querySelector('#tabs button[data-t="list"]');
+    if (first) first.click();
+  }
+}
+
+$('#btnSettings').onclick = () => showSettings(true);
+$('#btnBack').onclick = () => showSettings(false);
+
+$('#btnAdminOn').onclick = () => {
+  if (!confirm('开启管理员模式？开启后才能删除用户。')) return;
+  setAdmin(true);
+  showSettings(true);
+  if (typeof renderUserBar === 'function') {
+    renderUserBar(() => { renderAll(); showSettings(true); });
+  }
+  toast('管理员模式已开启');
+};
+
+$('#btnAdminOff').onclick = () => {
+  setAdmin(false);
+  showSettings(true);
+  if (typeof renderUserBar === 'function') {
+    renderUserBar(() => { renderAll(); showSettings(true); });
+  }
+  toast('管理员模式已关闭');
+};
+
+function renderSyncUI() {
+  const cfg = loadSyncCfg();
+  const st = $('#syncStatus');
+  if (!st) return;
+  const state = getSyncState();
+  if (!cfg.enabled) {
+    st.textContent = '未开启 · 只存本机，别人看不到';
+    st.style.color = '';
+  } else if (!cfg.token) {
+    st.textContent = '已开启但缺 Token · 请填写后保存';
+    st.style.color = '#f5a524';
+  } else {
+    let line = '已开启 · 仓库 ' + cfg.owner + '/' + cfg.repo;
+    if (state && state.msg) line += ' · ' + state.msg;
+    st.textContent = line;
+    st.style.color = (state && state.state === 'err') ? '#f07178' : '#3dd68c';
+  }
+  $('#syncToken').value = cfg.token || '';
+  $('#syncRepo').value = cfg.owner + '/' + cfg.repo;
+}
+
+$('#btnSyncSave').onclick = () => {
+  const tok = $('#syncToken').value.trim();
+  const repo = $('#syncRepo').value.trim();
+  const cfg = loadSyncCfg();
+  if (repo && repo.indexOf('/') > 0) {
+    const p = repo.split('/');
+    cfg.owner = p[0].trim();
+    cfg.repo = p[1].trim();
+  }
+  cfg.token = tok;
+  cfg.enabled = true;
+  saveSyncCfg(cfg);
+  renderSyncUI();
+  startSyncLoop();
+  syncNow(true);
+};
+
+$('#btnSyncNow').onclick = () => {
+  const cfg = loadSyncCfg();
+  if (!cfg.enabled) { toast('先开启同步'); return; }
+  syncNow(true);
+};
+
+$('#btnSyncOff').onclick = () => {
+  const cfg = loadSyncCfg();
+  cfg.enabled = false;
+  saveSyncCfg(cfg);
+  stopSyncLoop();
+  renderSyncUI();
+  toast('已关闭同步');
+};
+
+/* ---------- 语音记一笔 ---------- */
+function parseVoiceText(text) {
+  if (!text) return { meal: '', items: [] };
+  let meal = '';
+  if (/早餐|早饭|早上|早晨/.test(text)) meal = '早餐';
+  else if (/午餐|午饭|中午/.test(text)) meal = '午餐';
+  else if (/晚餐|晚饭|晚上|夜里/.test(text)) meal = '晚餐';
+  else if (/加餐|下午茶|夜宵|零食/.test(text)) meal = '加餐';
+  if (!meal) {
+    const h = new Date().getHours();
+    meal = h < 10.5 ? '早餐' : h < 15 ? '午餐' : h < 21 ? '晚餐' : '加餐';
+  }
+  let t = String(text)
+    .replace(/早餐|早饭|早上|早晨|午餐|午饭|中午|晚餐|晚饭|晚上|夜里|加餐|下午茶|夜宵|零食/g, ' ')
+    .replace(/今天|刚刚|刚才|现在|然后/g, ' ')
+    .replace(/我/g, ' ')
+    .replace(/(还?吃了?|喝了?|用?了)/g, ' ');
+  // 先按连接词切开，再清掉残渣
+  const parts = t.split(/还有|以及|和|加|[,，、。;；+]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const items = [];
+  parts.forEach(line => {
+    // 中文数字
+    let s = line
+      .replace(/两(?=[个颗片份杯碗包盒块根只勺瓶罐])/g, '2')
+      .replace(/一(?=个|颗|片|份|杯|碗|包|盒|块|根|只|勺|瓶|罐|大份|中份|小份)/g, '1')
+      .replace(/\s+/g, '');
+    if (!s) return;
+    let amount = '';
+    // 优先取重量/容量，再退回计数
+    const mW = s.match(/(\d+(?:\.\d+)?)\s*(kg|千克|克|g|ml|毫升|l|升)/i);
+    const mC = s.match(/(\d+(?:\.\d+)?)\s*(个|颗|片|份|杯|碗|包|盒|块|根|只|勺|瓶|罐)/i);
+    const mB = s.match(/(大份|中份|小份)/);
+    if (mW) amount = mW[1] + mW[2];
+    else if (mC) amount = mC[1] + mC[2];
+    else if (mB) amount = mB[1];
+    const food = s
+      .replace(/(\d+(?:\.\d+)?)\s*(kg|千克|克|g|ml|毫升|l|升|个|颗|片|份|杯|碗|包|盒|块|根|只|勺|瓶|罐)/ig, '')
+      .replace(/大份|中份|小份/g, '')
+      .replace(/^[的了]+|[的了]+$/g, '')
+      .trim();
+    if (!food) return;
+    let kcal = null;
+    let name = food;
+    const hits = searchFood(food);
+    const hit = hits.find(x => x.name === food) ||
+      hits.find(x => food.indexOf(x.name) >= 0) ||
+      hits.find(x => x.name.indexOf(food) >= 0) ||
+      hits[0];
+    if (hit) {
+      name = hit.name;
+      if (amount) kcal = scaleKcal(hit.amount, hit.kcal, amount);
+      else {
+        amount = hit.amount || amount;
+        kcal = hit.kcal;
+      }
+      if (kcal == null) kcal = hit.kcal;
+    }
+    items.push({ food: name, amount: amount, kcal: kcal });
+  });
+  return { meal: meal, items: items };
+}
+
+function saveVoiceItems(meal, items, rawText) {
+  const st = u();
+  st.entries = st.entries || [];
+  const unknown = [];
+  items.forEach(it => {
+    const k = Math.round(+it.kcal || 0);
+    const id = curDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5);
+    st.entries.push({
+      id: id,
+      date: curDate,
+      meal: meal,
+      food: it.food,
+      amount: it.amount || '',
+      kcal: k,
+      note: rawText ? ('语音：' + rawText) : ''
+    });
+    if (k > 0) upsertFood(it.food, it.amount, k);
+    else unknown.push(it);
+  });
+  saveActiveUser(st);
+  renderAll();
+  if (!unknown.length) {
+    const sum = items.reduce((s, x) => s + (+x.kcal || 0), 0);
+    toast('已记录 ' + items.length + ' 项 · ' + sum + ' 大卡');
+  } else {
+    const it = unknown[0];
+    fFood.value = it.food;
+    $('#fAmt').value = it.amount || '';
+    $('#fKcal').value = '';
+    toast('已记录，' + it.food + ' 热量请补填');
+    $('#fKcal').focus();
+  }
+}
+
+let voiceRec = null;
+let voiceBusy = false;
+
+/* 完全停掉录音并恢复手动输入（abort=用户主动取消，不等识别结果） */
+function stopVoice(abort, msg) {
+  voiceBusy = false;
+  const rec = voiceRec;
+  voiceRec = null;
+  try {
+    if (rec) {
+      rec.onend = rec.onerror = rec.onresult = null;
+      if (abort) rec.abort(); else rec.stop();
+    }
+  } catch (e) {}
+  $('#btnVoice').textContent = '🎤 语音记一笔';
+  if (msg != null) $('#voiceHint').textContent = msg;
+}
+
+$('#btnVoice').onclick = () => {
+  // 录音中再点 = 停止，立刻回到手动输入
+  if (voiceBusy) {
+    stopVoice(true, '已停止，可继续手动输入');
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    toast('此浏览器不支持语音，请用 Chrome 或 Edge');
+    return;
+  }
+  stopVoice(true); // 先杀掉可能残留的实例，防止叠加
+  try { voiceRec = new SR(); } catch (e) {
+    toast('无法启动语音');
+    return;
+  }
+  voiceRec.lang = 'zh-CN';
+  voiceRec.continuous = false;
+  voiceRec.interimResults = true;
+  voiceRec.maxAlternatives = 1;
+
+  voiceBusy = true;
+  $('#btnVoice').textContent = '⏹ 正在听…（点停止）';
+  $('#voiceHint').textContent = '请说：吃了什么 + 份量';
+  $('#voiceBox').hidden = true;
+
+  let finalText = '';
+
+  voiceRec.onresult = (ev) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalText += r[0].transcript;
+      else interim += r[0].transcript;
+    }
+    $('#voiceHint').textContent = (finalText || interim) || '正在识别…';
+  };
+
+  voiceRec.onerror = (ev) => {
+    stopVoice();
+    const msg = ev.error === 'not-allowed' ? '请允许麦克风权限'
+      : ev.error === 'no-speech' ? '没听清，请再说一次'
+      : '语音识别失败';
+    $('#voiceHint').textContent = msg;
+    toast(msg);
+  };
+
+  voiceRec.onend = () => {
+    stopVoice();
+    const text = (finalText || '').trim();
+    if (!text) {
+      $('#voiceHint').textContent = '没听清，请再说一次';
+      return;
+    }
+    const parsed = parseVoiceText(text);
+    if (!parsed.items.length) {
+      $('#voiceHint').textContent = '没识别出食物：' + text;
+      fFood.value = text;
+      return;
+    }
+    // 多于一项或热量不全时，先给预览；否则直接记
+    const allKnown = parsed.items.every(x => +x.kcal > 0);
+    if (parsed.items.length === 1 && allKnown) {
+      saveVoiceItems(parsed.meal, parsed.items, text);
+      $('#voiceHint').textContent = '✅ ' + parsed.items[0].food + ' ' + (parsed.items[0].amount || '') + ' · ' + parsed.items[0].kcal + ' 大卡';
+      return;
+    }
+    $('#voiceBox').hidden = false;
+    $('#voiceText').value = text;
+    $('#voicePreview').textContent = parsed.meal + ' · ' + parsed.items.map(x =>
+      x.food + ' ' + (x.amount || '') + ' ' + (x.kcal != null ? x.kcal + '大卡' : '热量待定')
+    ).join('；');
+    $('#voiceOk').onclick = () => {
+      const p2 = parseVoiceText($('#voiceText').value.trim() || text);
+      saveVoiceItems(p2.meal, p2.items.length ? p2.items : parsed.items, text);
+      $('#voiceBox').hidden = true;
+      $('#voiceHint').textContent = '已记录';
+    };
+    $('#voiceCancel').onclick = () => {
+      $('#voiceBox').hidden = true;
+      $('#voiceHint').textContent = '已取消';
+    };
+  };
+
+  try {
+    voiceRec.start();
+  } catch (e) {
+    stopVoice();
+    toast('语音启动失败');
+  }
+};
+
+function refreshAfterSwitch() {
+  renderAll();
+  const t = document.querySelector('#tabs button.on');
+  if (t && t.dataset.t === 'week') renderWeek();
+  if (t && t.dataset.t === 'month') renderMonth();
+  if (t && t.dataset.t === 'trend') renderTrend();
+  if (t && t.dataset.t === 'set') {
+    $('#targetInput').value = u().target || 1000;
+    renderSyncUI();
+  }
+}
+
+// 云端拉到数据后：刷新列表 + 用户选择（装成应用后第一次拉取就能看到电脑数据）
+window.addEventListener('calorie-sync', () => {
+  renderUserBar(refreshAfterSwitch);
+  refreshAfterSwitch();
+});
+
+renderUserBar(refreshAfterSwitch);
+
+setDate(todayISO());
+renderChips();
+renderSyncUI();
+startSyncLoop();
+
+(async function seed() {
+  try {
+    // 云端同步开着时以云端为准，不要往本地用户塞示例数据（避免冒出垃圾用户）
+    const syncCfg = JSON.parse(localStorage.getItem(LS_SYNC) || 'null');
+    const r = await fetch('data.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (Array.isArray(j.foods) && j.foods.length && !loadFooddb().length) saveFooddb(j.foods);
+    if (syncCfg && syncCfg.token) return;
+    if (Array.isArray(j.users) && j.users.length && !localStorage.getItem(LS_USERS)) {
+      localStorage.setItem(LS_USERS, JSON.stringify({ activeId: j.users[0].id, users: j.users }));
+    }
+    const cur = u();
+    if ((cur.entries || []).length || (cur.weights || []).length) return;
+    const st = cur;
+    if (Array.isArray(j.entries) && j.entries.length) st.entries = j.entries;
+    if (Array.isArray(j.weights) && j.weights.length) st.weights = j.weights;
+    if (j.target) st.target = j.target;
+    saveActiveUser(st);
+    renderAll();
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
